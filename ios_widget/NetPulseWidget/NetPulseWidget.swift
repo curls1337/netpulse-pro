@@ -1,5 +1,6 @@
 import WidgetKit
 import SwiftUI
+import ActivityKit
 
 struct Provider: TimelineProvider {
     func placeholder(in context: Context) -> SimpleEntry {
@@ -145,7 +146,6 @@ struct MediumWidgetView: View {
     }
 }
 
-@main
 struct NetPulseWidget: Widget {
     let kind: String = "NetPulseWidget"
 
@@ -156,5 +156,101 @@ struct NetPulseWidget: Widget {
         .configurationDisplayName("NetPulse Anti-Hack Sentry")
         .description("Pantau bandwidth live & deteksi lonjakan trafik mencurigakan.")
         .supportedFamilies([.systemSmall, .systemMedium])
+    }
+}
+
+// ---------------------------------------------------------------------------
+// DYNAMIC ISLAND (ACTIVITYKIT LIVE ACTIVITY FOR IPHONE 15)
+// ---------------------------------------------------------------------------
+struct NetPulseLiveActivity: Widget {
+    var body: some WidgetConfiguration {
+        ActivityConfiguration(for: NetPulseAttributes.self) { context in
+            ZStack {
+                Color(red: 9/255, green: 13/255, blue: 22/255)
+                HStack(spacing: 12) {
+                    Circle()
+                        .fill(context.state.isSecure ? Color.green : Color.red)
+                        .frame(width: 10, height: 10)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(context.state.isSecure ? "ANTI-HACK SENTRY: AMAN" : "🚨 WASPADA: LONJAKAN TRAFIK!")
+                            .font(.system(size: 11, weight: .black))
+                            .foregroundColor(context.state.isSecure ? Color.green : Color.red)
+                        Text(String(format: "%.1f Mbps Down • %.1f Mbps Up", context.state.downloadSpeed, context.state.uploadSpeed))
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundColor(.white)
+                    }
+                    Spacer()
+                    Text(context.state.isp)
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundColor(Color.cyan)
+                }
+                .padding()
+            }
+        } dynamicIsland: { context in
+            DynamicIsland {
+                DynamicIslandExpandedRegion(.leading) {
+                    HStack {
+                        Circle()
+                            .fill(context.state.isSecure ? Color.green : Color.red)
+                            .frame(width: 8, height: 8)
+                        Text(context.state.isSecure ? "AMAN" : "WASPADA")
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundColor(context.state.isSecure ? Color.green : Color.red)
+                    }
+                }
+                DynamicIslandExpandedRegion(.trailing) {
+                    Text(context.state.isp)
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundColor(Color.cyan)
+                }
+                DynamicIslandExpandedRegion(.bottom) {
+                    HStack {
+                        VStack(alignment: .leading) {
+                            Text(String(format: "%.1f Mbps", context.state.downloadSpeed))
+                                .font(.system(size: 20, weight: .black))
+                                .foregroundColor(.white)
+                            Text("Download")
+                                .font(.system(size: 9))
+                                .foregroundColor(.gray)
+                        }
+                        Spacer()
+                        VStack(alignment: .trailing) {
+                            Text(String(format: "%.1f Mbps", context.state.uploadSpeed))
+                                .font(.system(size: 20, weight: .black))
+                                .foregroundColor(Color.purple)
+                            Text("Upload")
+                                .font(.system(size: 9))
+                                .foregroundColor(.gray)
+                        }
+                    }
+                    .padding(.horizontal, 4)
+                }
+            } compactLeading: {
+                HStack(spacing: 3) {
+                    Circle()
+                        .fill(context.state.isSecure ? Color.green : Color.red)
+                        .frame(width: 6, height: 6)
+                    Text(String(format: "%.0fM", context.state.downloadSpeed))
+                        .font(.system(size: 11, weight: .black))
+                        .foregroundColor(Color.cyan)
+                }
+            } compactTrailing: {
+                Text(String(format: "↑%.0f", context.state.uploadSpeed))
+                    .font(.system(size: 11, weight: .black))
+                    .foregroundColor(Color.purple)
+            } minimal: {
+                Circle()
+                    .fill(context.state.isSecure ? Color.green : Color.red)
+                    .frame(width: 8, height: 8)
+            }
+        }
+    }
+}
+
+@main
+struct NetPulseBundle: WidgetBundle {
+    var body: some Widget {
+        NetPulseWidget()
+        NetPulseLiveActivity()
     }
 }

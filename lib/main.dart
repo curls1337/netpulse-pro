@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/services.dart';
 
 void main() {
   runApp(const NetPulseProApp());
@@ -85,6 +86,10 @@ class _MainShellState extends State<MainShell> {
   double _monthUsageGB = 84.6;
   double _monthlyQuotaGB = 150.0;
 
+  // Dynamic Island (Live Activity)
+  static const _liveActivityChannel = MethodChannel('com.devcurl.netpulse/live_activity');
+  bool _isDynamicIslandActive = false;
+
   Timer? _metricsTimer;
 
   @override
@@ -99,6 +104,35 @@ class _MainShellState extends State<MainShell> {
     super.dispose();
   }
 
+  Future<void> _toggleDynamicIsland(bool enable) async {
+    setState(() => _isDynamicIslandActive = enable);
+    try {
+      if (enable) {
+        await _liveActivityChannel.invokeMethod('startLiveActivity', {
+          'download': _downloadSpeed,
+          'upload': _uploadSpeed,
+          'isSecure': _downloadSpeed < 100 && _uploadSpeed < 40,
+          'isp': _ispName,
+        });
+      } else {
+        await _liveActivityChannel.invokeMethod('stopLiveActivity');
+      }
+    } catch (e) {
+      debugPrint('Live Activity error: $e');
+    }
+  }
+
+  void _syncLiveActivity() {
+    if (_isDynamicIslandActive) {
+      _liveActivityChannel.invokeMethod('updateLiveActivity', {
+        'download': _downloadSpeed,
+        'upload': _uploadSpeed,
+        'isSecure': _downloadSpeed < 100 && _uploadSpeed < 40,
+        'isp': _ispName,
+      });
+    }
+  }
+
   void _startSimulatedMetrics() {
     _metricsTimer = Timer.periodic(const Duration(seconds: 3), (timer) {
       if (!_isTesting && mounted) {
@@ -109,6 +143,7 @@ class _MainShellState extends State<MainShell> {
           _ping = 12 + rand.nextInt(5);
           _lastHourUsageMB = double.parse((130.0 + rand.nextDouble() * 25.0).toStringAsFixed(1));
         });
+        _syncLiveActivity();
       }
     });
   }
@@ -154,6 +189,8 @@ class _MainShellState extends State<MainShell> {
         isTesting: _isTesting,
         lastHourMB: _lastHourUsageMB,
         onRunTest: _runSpeedtest,
+        isDynamicIsland: _isDynamicIslandActive,
+        onToggleDynamicIsland: _toggleDynamicIsland,
       ),
       AnalyticsTab(todayGB: _todayUsageGB, monthGB: _monthUsageGB, quotaGB: _monthlyQuotaGB),
       WidgetsGalleryTab(
@@ -222,6 +259,8 @@ class DashboardTab extends StatelessWidget {
   final bool isTesting;
   final double lastHourMB;
   final VoidCallback onRunTest;
+  final bool isDynamicIsland;
+  final ValueChanged<bool> onToggleDynamicIsland;
 
   const DashboardTab({
     super.key,
@@ -235,6 +274,8 @@ class DashboardTab extends StatelessWidget {
     required this.isTesting,
     required this.lastHourMB,
     required this.onRunTest,
+    required this.isDynamicIsland,
+    required this.onToggleDynamicIsland,
   });
 
   @override
@@ -349,6 +390,63 @@ class DashboardTab extends StatelessWidget {
                       ),
                     ],
                   ),
+                ),
+              ],
+            ),
+          ),
+
+          // Dynamic Island Live Activity Switch Card for iPhone 15
+          Container(
+            width: double.infinity,
+            margin: const EdgeInsets.only(top: 10),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            decoration: BoxDecoration(
+              color: const Color(0xFF111827),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: isDynamicIsland ? const Color(0xFF06B6D4) : Colors.white.withOpacity(0.06),
+              ),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      width: 28,
+                      height: 18,
+                      decoration: BoxDecoration(
+                        color: Colors.black,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: isDynamicIsland ? const Color(0xFF06B6D4) : Colors.white24),
+                      ),
+                      alignment: Alignment.center,
+                      child: Container(
+                        width: 6,
+                        height: 6,
+                        decoration: BoxDecoration(
+                          color: isDynamicIsland ? const Color(0xFF10B981) : Colors.grey,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('Dynamic Island (iPhone 15)', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.white)),
+                        Text(
+                          isDynamicIsland ? 'Live Speed aktif di pulau atas' : 'Tampilkan kecepatan live di atas iPhone',
+                          style: const TextStyle(fontSize: 10, color: Color(0xFF94A3B8)),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+                Switch(
+                  value: isDynamicIsland,
+                  onChanged: onToggleDynamicIsland,
+                  activeColor: const Color(0xFF06B6D4),
                 ),
               ],
             ),

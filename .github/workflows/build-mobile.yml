@@ -72,8 +72,9 @@ jobs:
           flutter create --platforms=android,ios --org com.devcurl.netpulse --project-name netpulse_pro .
           cp -r /tmp/custom_src/lib/* lib/
           cp /tmp/custom_src/pubspec.yaml pubspec.yaml
-          sed -i '' 's/<string>$(PRODUCT_NAME)<\/string>/<string>NetPulse Pro<\/string>/g' ios/Runner/Info.plist || true
-          sed -i '' 's/<string>netpulse_pro<\/string>/<string>NetPulse Pro<\/string>/g' ios/Runner/Info.plist || true
+          cp custom_ios/Info.plist ios/Runner/Info.plist
+          cp custom_ios/AppDelegate.swift ios/Runner/AppDelegate.swift
+          cp custom_ios/NetPulseAttributes.swift ios/Runner/NetPulseAttributes.swift
           flutter pub get
 
       - name: Install XcodeGen
