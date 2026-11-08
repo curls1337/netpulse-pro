@@ -74,9 +74,9 @@ jobs:
 
       - name: Build Unsigned iOS App via xcodebuild
         run: |
-          flutter build ios --config-only --release
+          flutter build ios --config-only --no-codesign
           cd ios
-          xcodebuild clean build \
+          xcodebuild build \
             -workspace Runner.xcworkspace \
             -scheme Runner \
             -configuration Release \
