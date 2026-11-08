@@ -2,14 +2,18 @@ name: NetPulseWidget
 options:
   bundleIdPrefix: com.devcurl.netpulse
   deploymentTarget:
-    iOS: "16.0"
+    iOS: "16.1"
 targets:
   NetPulseWidget:
     type: app-extension
     platform: iOS
-    deploymentTarget: "16.0"
+    deploymentTarget: "16.1"
     sources:
       - path: NetPulseWidget
+    dependencies:
+      - sdk: WidgetKit.framework
+      - sdk: SwiftUI.framework
+      - sdk: ActivityKit.framework
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.devcurl.netpulse.netpulsePro.widget

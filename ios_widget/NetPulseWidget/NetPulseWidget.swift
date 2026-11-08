@@ -189,41 +189,29 @@ struct NetPulseLiveActivity: Widget {
         } dynamicIsland: { context in
             DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) {
-                    HStack {
-                        Circle()
-                            .fill(context.state.isSecure ? Color.green : Color.red)
-                            .frame(width: 8, height: 8)
-                        Text(context.state.isSecure ? "AMAN" : "WASPADA")
-                            .font(.system(size: 11, weight: .bold))
-                            .foregroundColor(context.state.isSecure ? Color.green : Color.red)
-                    }
+                    Text(context.state.isSecure ? "🟢 AMAN" : "🔴 WASPADA")
+                        .font(.system(size: 11, weight: .bold))
                 }
                 DynamicIslandExpandedRegion(.trailing) {
                     Text(context.state.isp)
                         .font(.system(size: 11, weight: .bold))
                         .foregroundColor(Color.cyan)
                 }
+                DynamicIslandExpandedRegion(.center) {
+                    Text("NetPulse Sentry")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundColor(Color.gray)
+                }
                 DynamicIslandExpandedRegion(.bottom) {
                     HStack {
-                        VStack(alignment: .leading) {
-                            Text(String(format: "%.1f Mbps", context.state.downloadSpeed))
-                                .font(.system(size: 20, weight: .black))
-                                .foregroundColor(.white)
-                            Text("Download")
-                                .font(.system(size: 9))
-                                .foregroundColor(.gray)
-                        }
+                        Text(String(format: "↓ %.1f Mbps", context.state.downloadSpeed))
+                            .font(.system(size: 15, weight: .black))
+                            .foregroundColor(Color.white)
                         Spacer()
-                        VStack(alignment: .trailing) {
-                            Text(String(format: "%.1f Mbps", context.state.uploadSpeed))
-                                .font(.system(size: 20, weight: .black))
-                                .foregroundColor(Color.purple)
-                            Text("Upload")
-                                .font(.system(size: 9))
-                                .foregroundColor(.gray)
-                        }
+                        Text(String(format: "↑ %.1f Mbps", context.state.uploadSpeed))
+                            .font(.system(size: 15, weight: .black))
+                            .foregroundColor(Color.purple)
                     }
-                    .padding(.horizontal, 4)
                 }
             } compactLeading: {
                 HStack(spacing: 3) {
