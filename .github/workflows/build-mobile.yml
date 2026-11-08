@@ -33,21 +33,23 @@ jobs:
           mkdir -p /tmp/custom_src
           cp -r lib /tmp/custom_src/
           cp pubspec.yaml /tmp/custom_src/
-          flutter create --platforms=android,ios --org com.devcurl.app --project-name app_mobile .
+          flutter create --platforms=android,ios --org com.devcurl.netpulse --project-name netpulse_pro .
           cp -r /tmp/custom_src/lib/* lib/
           cp /tmp/custom_src/pubspec.yaml pubspec.yaml
+          sed -i 's/android:label="netpulse_pro"/android:label="NetPulse Pro"/' android/app/src/main/AndroidManifest.xml || true
           flutter pub get
 
       - name: Build Release APK
         run: |
           flutter build apk --release
+          cp build/app/outputs/flutter-apk/app-release.apk ./NetPulsePro-v2.apk
           cp build/app/outputs/flutter-apk/app-release.apk ./NetPulsePro.apk
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: Android-APK
-          path: ./NetPulsePro.apk
+          path: ./NetPulsePro-v2.apk
 
   build-ios:
     name: Build iOS Sideload IPA (Flutter)
@@ -67,9 +69,11 @@ jobs:
           mkdir -p /tmp/custom_src
           cp -r lib /tmp/custom_src/
           cp pubspec.yaml /tmp/custom_src/
-          flutter create --platforms=android,ios --org com.devcurl.app --project-name app_mobile .
+          flutter create --platforms=android,ios --org com.devcurl.netpulse --project-name netpulse_pro .
           cp -r /tmp/custom_src/lib/* lib/
           cp /tmp/custom_src/pubspec.yaml pubspec.yaml
+          sed -i '' 's/<string>$(PRODUCT_NAME)<\/string>/<string>NetPulse Pro<\/string>/g' ios/Runner/Info.plist || true
+          sed -i '' 's/<string>netpulse_pro<\/string>/<string>NetPulse Pro<\/string>/g' ios/Runner/Info.plist || true
           flutter pub get
 
       - name: Build Unsigned iOS App via xcodebuild
@@ -89,13 +93,14 @@ jobs:
           cd ..
           mkdir -p Payload
           cp -r ios/build/Build/Products/Release-iphoneos/Runner.app Payload/
-          zip -r ./NetPulsePro.ipa Payload
+          zip -r ./NetPulsePro-v2.ipa Payload
+          cp ./NetPulsePro-v2.ipa ./NetPulsePro.ipa
 
       - name: Upload IPA Artifact
         uses: actions/upload-artifact@v4
         with:
           name: iOS-IPA
-          path: ./NetPulsePro.ipa
+          path: ./NetPulsePro-v2.ipa
 
   publish-release:
     name: Publish IPA & APK to GitHub Releases
@@ -117,19 +122,22 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.0.${{ github.run_number }}
-          name: "NetPulse Pro v1.0.${{ github.run_number }} (iOS .ipa & Android .apk)"
+          tag_name: v2.0.${{ github.run_number }}
+          name: "NetPulse Pro v2.0.${{ github.run_number }} (Fresh App ID & Clean Cache)"
           body: |
-            ## 🚀 NetPulse Pro Mobile Installation Packages
-            Aplikasi pemantau kecepatan internet real-time dan kuota pemakaian data (MB/GB) per 1 jam, mingguan, bulanan, dan tahunan dilengkapi fitur Widget iOS & Android.
+            ## 🚀 NetPulse Pro Mobile Installation Packages (v2 Update)
+            Pembaruan aplikasi: Tombol pemasangan widget, toggle batas harian + edit MB, serta indikator ISP pada widget.
+
+            > ⚠️ **PENTING UNTUK PENGGUNA SIDELOAD iOS (ESign / Scarlet / TrollStore)**:
+            > **Hapus / Uninstall aplikasi NetPulse Pro versi lama dari Home Screen iPhone Anda terlebih dahulu**, lalu unduh dan install file baru `NetPulsePro-v2.ipa` di bawah ini agar cache signature lama tidak bentrok!
 
             ### 📦 Download File Instalasi:
-            - 📱 **`NetPulsePro.ipa`**: iOS Sideload (Install via TrollStore, ESign, Scarlet, AltStore, Sideloadly)
-            - 🤖 **`NetPulsePro.apk`**: Android Direct Install (ARM64 / Universal)
+            - 📱 **`NetPulsePro-v2.ipa`**: iOS Sideload (Fresh Bundle ID: `com.devcurl.netpulse.netpulsePro`)
+            - 🤖 **`NetPulsePro-v2.apk`**: Android Direct Install
           draft: false
           prerelease: false
           files: |
-            ./release-files/NetPulsePro.ipa
-            ./release-files/NetPulsePro.apk
+            ./release-files/NetPulsePro-v2.ipa
+            ./release-files/NetPulsePro-v2.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

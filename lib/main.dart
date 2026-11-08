@@ -1264,6 +1264,13 @@ class SettingsTab extends StatelessWidget {
           ),
 
           _settingsTile(
+            icon: Icons.router_rounded,
+            title: 'Nama ISP Provider',
+            desc: 'Penyedia layanan internet aktif saat ini',
+            trailing: Text(networkType.contains('Wi-Fi') ? 'Biznet Fiber' : 'Telkomsel 5G', style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF06B6D4))),
+          ),
+
+          _settingsTile(
             icon: Icons.calendar_month_rounded,
             title: 'Tanggal Reset Kuota',
             desc: 'Reset counter setiap tanggal 1 tiap bulan',
