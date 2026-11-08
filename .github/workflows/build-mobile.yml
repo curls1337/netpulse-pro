@@ -72,11 +72,23 @@ jobs:
           cp /tmp/custom_src/pubspec.yaml pubspec.yaml
           flutter pub get
 
-      - name: Build Unsigned iOS App & Package IPA
+      - name: Build Unsigned iOS App via xcodebuild
         run: |
-          flutter build ios --release --no-codesign
+          flutter build ios --config-only --release
+          cd ios
+          xcodebuild clean build \
+            -workspace Runner.xcworkspace \
+            -scheme Runner \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            DEVELOPMENT_TEAM=""
+          cd ..
           mkdir -p Payload
-          cp -r build/ios/iphoneos/Runner.app Payload/
+          cp -r ios/build/Build/Products/Release-iphoneos/Runner.app Payload/
           zip -r ./NetPulsePro.ipa Payload
 
       - name: Upload IPA Artifact

@@ -241,7 +241,7 @@ class DashboardTab extends StatelessWidget {
         children: [
           // Header Bar
           Row(
-            mainAxisAlignment: MainAxisAlignment.between,
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -561,7 +561,7 @@ class _AnalyticsTabState extends State<AnalyticsTab> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(
-                  mainAxisAlignment: MainAxisAlignment.between,
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     Text(
                       _selectedPeriod == 0
@@ -701,7 +701,7 @@ class _AnalyticsTabState extends State<AnalyticsTab> {
         border: Border.all(color: isPeak ? const Color(0xFF06B6D4).withOpacity(0.4) : Colors.white.withOpacity(0.06)),
       ),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.between,
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Row(
             children: [
@@ -784,7 +784,7 @@ class WidgetsGalleryTab extends StatelessWidget {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Row(
-                    mainAxisAlignment: MainAxisAlignment.between,
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: const [
                       Icon(Icons.speed_rounded, size: 20, color: Color(0xFF06B6D4)),
                       Text('LIVE', style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Color(0xFF10B981))),
@@ -801,7 +801,7 @@ class WidgetsGalleryTab extends StatelessWidget {
                     ],
                   ),
                   Row(
-                    mainAxisAlignment: MainAxisAlignment.between,
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       Text('1 Jam: ${lastHourMB.toInt()}MB', style: const TextStyle(fontSize: 9, color: Color(0xFFF59E0B))),
                       Text('↑ ${upload.toStringAsFixed(0)}M', style: const TextStyle(fontSize: 9, color: Color(0xFF6366F1))),
@@ -928,7 +928,7 @@ class QuotaAlertTab extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(
-                  mainAxisAlignment: MainAxisAlignment.between,
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     const Text('Batas Kuota Bulanan', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.white)),
                     Text('${(percent * 100).toStringAsFixed(1)}%', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF06B6D4))),
@@ -946,7 +946,7 @@ class QuotaAlertTab extends StatelessWidget {
                 ),
                 const SizedBox(height: 16),
                 Row(
-                  mainAxisAlignment: MainAxisAlignment.between,
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     Text('Terpakai: ${currentUsageGB.toStringAsFixed(1)} GB', style: const TextStyle(fontSize: 12, color: Color(0xFF94A3B8))),
                     Text('Sisa: ${remainingGB.toStringAsFixed(1)} GB', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF10B981))),
@@ -979,7 +979,7 @@ class QuotaAlertTab extends StatelessWidget {
         border: Border.all(color: Colors.white.withOpacity(0.06)),
       ),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.between,
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Expanded(
             child: Column(
