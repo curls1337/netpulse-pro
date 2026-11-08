@@ -156,7 +156,12 @@ class _MainShellState extends State<MainShell> {
         onRunTest: _runSpeedtest,
       ),
       AnalyticsTab(todayGB: _todayUsageGB, monthGB: _monthUsageGB, quotaGB: _monthlyQuotaGB),
-      WidgetsGalleryTab(download: _downloadSpeed, upload: _uploadSpeed, lastHourMB: _lastHourUsageMB),
+      WidgetsGalleryTab(
+        download: _downloadSpeed,
+        upload: _uploadSpeed,
+        lastHourMB: _lastHourUsageMB,
+        isp: _ispName,
+      ),
       QuotaAlertTab(currentUsageGB: _monthUsageGB, quotaLimitGB: _monthlyQuotaGB),
       SettingsTab(
         isDark: widget.isDark,
@@ -743,8 +748,15 @@ class WidgetsGalleryTab extends StatelessWidget {
   final double download;
   final double upload;
   final double lastHourMB;
+  final String isp;
 
-  const WidgetsGalleryTab({super.key, required this.download, required this.upload, required this.lastHourMB});
+  const WidgetsGalleryTab({
+    super.key,
+    required this.download,
+    required this.upload,
+    required this.lastHourMB,
+    required this.isp,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -785,9 +797,12 @@ class WidgetsGalleryTab extends StatelessWidget {
                 children: [
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: const [
-                      Icon(Icons.speed_rounded, size: 20, color: Color(0xFF06B6D4)),
-                      Text('LIVE', style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Color(0xFF10B981))),
+                    children: [
+                      const Icon(Icons.speed_rounded, size: 20, color: Color(0xFF06B6D4)),
+                      Text(
+                        isp.split(' ').first,
+                        style: const TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Color(0xFF06B6D4)),
+                      ),
                     ],
                   ),
                   Column(
@@ -808,6 +823,25 @@ class WidgetsGalleryTab extends StatelessWidget {
                     ],
                   ),
                 ],
+              ),
+            ),
+          ),
+
+          const SizedBox(height: 10),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: () {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('✓ Small Widget telah ditambahkan ke Home Screen!')),
+                );
+              },
+              icon: const Icon(Icons.add_rounded, size: 16),
+              label: const Text('Tambahkan Small Widget ke Home Screen'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF06B6D4),
+                foregroundColor: const Color(0xFF090D16),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
               ),
             ),
           ),
@@ -840,10 +874,19 @@ class WidgetsGalleryTab extends StatelessWidget {
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       Row(
-                        children: const [
-                          Icon(Icons.wifi, size: 14, color: Color(0xFF06B6D4)),
-                          SizedBox(width: 6),
-                          Text('NetPulse Monitor', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white)),
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Row(
+                            children: const [
+                              Icon(Icons.wifi, size: 14, color: Color(0xFF06B6D4)),
+                              SizedBox(width: 6),
+                              Text('NetPulse', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.white)),
+                            ],
+                          ),
+                          Text(
+                            isp,
+                            style: const TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Color(0xFF06B6D4)),
+                          ),
                         ],
                       ),
                       Row(
@@ -872,11 +915,30 @@ class WidgetsGalleryTab extends StatelessWidget {
                     children: [
                       const Text('Pemakaian 1 Jam', style: TextStyle(fontSize: 10, color: Color(0xFF94A3B8))),
                       Text('${lastHourMB.toStringAsFixed(1)} MB', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFFF59E0B))),
-                      const Text('Hari ini: 4.2 GB\nBulan ini: 84.6 GB', style: TextStyle(fontSize: 9, color: Color(0xFF64748B), height: 1.3)),
+                      const Text('Hari ini: 4.2 GB\\nBulan ini: 84.6 GB', style: TextStyle(fontSize: 9, color: Color(0xFF64748B), height: 1.3)),
                     ],
                   ),
                 ),
               ],
+            ),
+          ),
+
+          const SizedBox(height: 10),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: () {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('✓ Medium Widget telah ditambahkan ke Home Screen!')),
+                );
+              },
+              icon: const Icon(Icons.add_rounded, size: 16),
+              label: const Text('Tambahkan Medium Widget ke Home Screen'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF06B6D4),
+                foregroundColor: const Color(0xFF090D16),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              ),
             ),
           ),
         ],
@@ -888,16 +950,67 @@ class WidgetsGalleryTab extends StatelessWidget {
 // ---------------------------------------------------------------------------
 // TAB 4: QUOTA ALERTS & LIMITS
 // ---------------------------------------------------------------------------
-class QuotaAlertTab extends StatelessWidget {
+class QuotaAlertTab extends StatefulWidget {
   final double currentUsageGB;
   final double quotaLimitGB;
 
   const QuotaAlertTab({super.key, required this.currentUsageGB, required this.quotaLimitGB});
 
   @override
+  State<QuotaAlertTab> createState() => _QuotaAlertTabState();
+}
+
+class _QuotaAlertTabState extends State<QuotaAlertTab> {
+  bool _dailyLimitActive = true;
+  double _dailyLimitMB = 1024.0;
+  bool _quota80Active = true;
+  bool _quota95Active = true;
+  bool _hourlyLimitActive = true;
+  bool _switchNetworkActive = false;
+
+  void _showSetDailyLimitDialog() {
+    final controller = TextEditingController(text: _dailyLimitMB.toInt().toString());
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF111827),
+        title: const Text('Setting Batas Harian (MB)', style: TextStyle(color: Colors.white, fontSize: 16)),
+        content: TextField(
+          controller: controller,
+          keyboardType: TextInputType.number,
+          style: const TextStyle(color: Colors.white),
+          decoration: const InputDecoration(
+            hintText: 'Contoh: 1024',
+            suffixText: 'MB',
+            suffixStyle: TextStyle(color: Color(0xFF06B6D4)),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Batal', style: TextStyle(color: Colors.grey)),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              final val = double.tryParse(controller.text) ?? _dailyLimitMB;
+              setState(() => _dailyLimitMB = val);
+              Navigator.pop(ctx);
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('Batas harian diubah ke: ${val.toInt()} MB (${(val / 1024).toStringAsFixed(2)} GB)')),
+              );
+            },
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF06B6D4)),
+            child: const Text('Simpan', style: TextStyle(color: Color(0xFF090D16), fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final percent = (currentUsageGB / quotaLimitGB).clamp(0.0, 1.0);
-    final remainingGB = (quotaLimitGB - currentUsageGB).clamp(0.0, quotaLimitGB);
+    final percent = (widget.currentUsageGB / widget.quotaLimitGB).clamp(0.0, 1.0);
+    final remainingGB = (widget.quotaLimitGB - widget.currentUsageGB).clamp(0.0, widget.quotaLimitGB);
 
     return SingleChildScrollView(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
@@ -948,7 +1061,7 @@ class QuotaAlertTab extends StatelessWidget {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text('Terpakai: ${currentUsageGB.toStringAsFixed(1)} GB', style: const TextStyle(fontSize: 12, color: Color(0xFF94A3B8))),
+                    Text('Terpakai: ${widget.currentUsageGB.toStringAsFixed(1)} GB', style: const TextStyle(fontSize: 12, color: Color(0xFF94A3B8))),
                     Text('Sisa: ${remainingGB.toStringAsFixed(1)} GB', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF10B981))),
                   ],
                 ),
@@ -958,18 +1071,116 @@ class QuotaAlertTab extends StatelessWidget {
 
           const SizedBox(height: 24),
 
-          const Text('Aturan Notifikasi Otomatis', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+          const Text('Aturan Notifikasi & Batas Harian', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
           const SizedBox(height: 12),
-          _alertToggle('Peringatan Kuota 80%', 'Kirim notifikasi push saat kuota mencapai 80%', true),
-          _alertToggle('Peringatan Kuota 95%', 'Kirim alarm keras saat kuota tersisa 5%', true),
-          _alertToggle('Batas Pemakaian Per 1 Jam (500 MB)', 'Peringatkan jika ada aplikasi download berlebih', false),
-          _alertToggle('Notifikasi Putus Koneksi', 'Bunyikan getar jika Wi-Fi beralih ke Seluler', true),
+
+          // Interactive Batas Pemakaian Harian (Bisa di-ON-kan & di-Setting MB-nya)
+          Container(
+            margin: const EdgeInsets.only(bottom: 10),
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: const Color(0xFF111827),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: _dailyLimitActive ? const Color(0xFF06B6D4).withOpacity(0.4) : Colors.white.withOpacity(0.06)),
+            ),
+            child: Column(
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              const Text('Batas Pemakaian Harian', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.white)),
+                              const SizedBox(width: 8),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: _dailyLimitActive ? const Color(0xFF10B981).withOpacity(0.2) : Colors.white10,
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: Text(
+                                  _dailyLimitActive ? 'AKTIF' : 'OFF',
+                                  style: TextStyle(
+                                    fontSize: 9,
+                                    fontWeight: FontWeight.bold,
+                                    color: _dailyLimitActive ? const Color(0xFF10B981) : Colors.grey,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 2),
+                          const Text('Kirim alarm jika pemakaian hari ini melebihi batas', style: TextStyle(fontSize: 10, color: Color(0xFF64748B))),
+                        ],
+                      ),
+                    ),
+                    Switch(
+                      value: _dailyLimitActive,
+                      onChanged: (val) {
+                        setState(() => _dailyLimitActive = val);
+                      },
+                      activeColor: const Color(0xFF06B6D4),
+                    ),
+                  ],
+                ),
+                if (_dailyLimitActive) ...[
+                  const Divider(color: Colors.white10, height: 16),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        'Setting Kuota: ${_dailyLimitMB.toInt()} MB (${(_dailyLimitMB / 1024).toStringAsFixed(2)} GB)',
+                        style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF06B6D4)),
+                      ),
+                      TextButton.icon(
+                        onPressed: _showSetDailyLimitDialog,
+                        icon: const Icon(Icons.edit, size: 12, color: Color(0xFF06B6D4)),
+                        label: const Text('Ubah MB', style: TextStyle(fontSize: 11, color: Color(0xFF06B6D4))),
+                      ),
+                    ],
+                  ),
+                ],
+              ],
+            ),
+          ),
+
+          _alertToggle(
+            'Batas Pemakaian Per 1 Jam (500 MB)',
+            'Peringatkan jika ada aplikasi download berlebih',
+            _hourlyLimitActive,
+            (val) => setState(() => _hourlyLimitActive = val),
+          ),
+
+          _alertToggle(
+            'Peringatan Kuota 80%',
+            'Kirim notifikasi push saat kuota mencapai 80%',
+            _quota80Active,
+            (val) => setState(() => _quota80Active = val),
+          ),
+
+          _alertToggle(
+            'Peringatan Kuota 95%',
+            'Kirim alarm keras saat kuota tersisa 5%',
+            _quota95Active,
+            (val) => setState(() => _quota95Active = val),
+          ),
+
+          _alertToggle(
+            'Notifikasi Putus Koneksi',
+            'Bunyikan getar jika Wi-Fi beralih ke Seluler',
+            _switchNetworkActive,
+            (val) => setState(() => _switchNetworkActive = val),
+          ),
         ],
       ),
     );
   }
 
-  Widget _alertToggle(String title, String desc, bool val) {
+  Widget _alertToggle(String title, String desc, bool val, ValueChanged<bool> onChanged) {
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
       padding: const EdgeInsets.all(14),
@@ -993,7 +1204,7 @@ class QuotaAlertTab extends StatelessWidget {
           ),
           Switch(
             value: val,
-            onChanged: (v) {},
+            onChanged: onChanged,
             activeColor: const Color(0xFF06B6D4),
           ),
         ],
