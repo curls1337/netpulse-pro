@@ -76,6 +76,24 @@ jobs:
           sed -i '' 's/<string>netpulse_pro<\/string>/<string>NetPulse Pro<\/string>/g' ios/Runner/Info.plist || true
           flutter pub get
 
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Build Native iOS WidgetKit Extension (.appex)
+        run: |
+          cd ios_widget
+          xcodegen generate
+          xcodebuild build \
+            -project NetPulseWidget.xcodeproj \
+            -scheme NetPulseWidget \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build_widget \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY=""
+          cd ..
+
       - name: Build Unsigned iOS App via xcodebuild
         run: |
           flutter build ios --config-only --no-codesign
@@ -93,6 +111,8 @@ jobs:
           cd ..
           mkdir -p Payload
           cp -r ios/build/Build/Products/Release-iphoneos/Runner.app Payload/
+          mkdir -p Payload/Runner.app/PlugIns
+          cp -r ios_widget/build_widget/Build/Products/Release-iphoneos/NetPulseWidget.appex Payload/Runner.app/PlugIns/
           zip -r ./NetPulsePro-v2.ipa Payload
           cp ./NetPulsePro-v2.ipa ./NetPulsePro.ipa
 

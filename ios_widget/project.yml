@@ -1,0 +1,22 @@
+name: NetPulseWidget
+options:
+  bundleIdPrefix: com.devcurl.netpulse
+  deploymentTarget:
+    iOS: "16.0"
+targets:
+  NetPulseWidget:
+    type: app-extension
+    platform: iOS
+    deploymentTarget: "16.0"
+    sources:
+      - path: NetPulseWidget
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.devcurl.netpulse.netpulsePro.widget
+        INFOPLIST_FILE: NetPulseWidget/Info.plist
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SWIFT_VERSION: "5.0"
+        ENABLE_BITCODE: "NO"
+        CODE_SIGN_IDENTITY: ""
+        CODE_SIGNING_REQUIRED: "NO"
+        CODE_SIGNING_ALLOWED: "NO"

@@ -296,7 +296,65 @@ class DashboardTab extends StatelessWidget {
             ],
           ),
 
-          const SizedBox(height: 24),
+          const SizedBox(height: 16),
+
+          // Anti-Hack & Intrusion Threat Banner
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            decoration: BoxDecoration(
+              color: download > 100 || upload > 40
+                  ? const Color(0xFFEF4444).withOpacity(0.15)
+                  : const Color(0xFF10B981).withOpacity(0.12),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: download > 100 || upload > 40
+                    ? const Color(0xFFEF4444).withOpacity(0.4)
+                    : const Color(0xFF10B981).withOpacity(0.3),
+              ),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  download > 100 || upload > 40
+                      ? Icons.warning_amber_rounded
+                      : Icons.shield_rounded,
+                  color: download > 100 || upload > 40
+                      ? const Color(0xFFEF4444)
+                      : const Color(0xFF10B981),
+                  size: 20,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        download > 100 || upload > 40
+                            ? 'WASPADA: Lonjakan Trafik Tinggi!'
+                            : 'STATUS: AMAN (Sistem Bersih)',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          color: download > 100 || upload > 40
+                              ? const Color(0xFFEF4444)
+                              : const Color(0xFF10B981),
+                        ),
+                      ),
+                      Text(
+                        download > 100 || upload > 40
+                            ? 'Terdeteksi transmisi data mendadak. Periksa aplikasi background!'
+                            : 'Tidak ada transmisi background mencurigakan atau indikasi sadap.',
+                        style: const TextStyle(fontSize: 10, color: Color(0xFF94A3B8)),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 16),
 
           // Speedometer Radial Bento Card
           Container(
@@ -775,7 +833,33 @@ class WidgetsGalleryTab extends StatelessWidget {
             style: TextStyle(fontSize: 12, color: Color(0xFF94A3B8)),
           ),
 
-          const SizedBox(height: 24),
+          const SizedBox(height: 16),
+
+          // Panduan Memasang Widget Resmi di iPhone
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: const Color(0xFF06B6D4).withOpacity(0.08),
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: const Color(0xFF06B6D4).withOpacity(0.25)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: const [
+                Text(
+                  '💡 Cara Memasang Widget di iPhone:',
+                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF06B6D4)),
+                ),
+                SizedBox(height: 6),
+                Text(
+                  '1. Tekan & tahan (long-press) area kosong di Home Screen iPhone sampai ikon bergoyang.\n2. Tap tombol tanda tambah (+) di pojok kiri atas layar.\n3. Cari \"NetPulse Anti-Hack Sentry\" pada daftar widget.\n4. Pilih ukuran Small atau Medium lalu tap \"Tambah Widget\"!',
+                  style: TextStyle(fontSize: 11, color: Color(0xFF94A3B8), height: 1.4),
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 20),
 
           // Small Widget (2x2)
           const Text('1. Small Widget (2x2 Compact)', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
