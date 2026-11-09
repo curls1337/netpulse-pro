@@ -46,7 +46,7 @@
       overflow: hidden;
     }
     .dynamic-island {
-      width: 120px;
+      width: 140px;
       height: 32px;
       background: #000000;
       border-radius: 20px;
@@ -55,12 +55,13 @@
       left: 50%;
       transform: translateX(-50%);
       z-index: 50;
-      transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+      transition: all 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+      cursor: pointer;
     }
     .dynamic-island:hover {
-      width: 220px;
-      height: 44px;
-      border-radius: 24px;
+      width: 290px;
+      height: 48px;
+      border-radius: 26px;
     }
     .glass-card {
       background: rgba(17, 24, 39, 0.85);
@@ -109,14 +110,24 @@
   <!-- The iPhone 15 Pro Physical Device Frame -->
   <div class="iphone-case bg-oled flex flex-col">
     
-    <!-- Dynamic Island -->
-    <div class="dynamic-island flex items-center justify-between px-3 text-[10px] text-slate-400">
-      <div class="flex items-center gap-1.5">
-        <span class="w-2 h-2 rounded-full bg-cyan-400 animate-pulse"></span>
-        <span class="font-bold text-white text-[9px]" id="island-speed">84.5M</span>
-      </div>
+    <!-- Dynamic Island (Left: Download, Center: Total Hari Ini, Right: Upload) -->
+    <div class="dynamic-island flex items-center justify-between px-3 text-[10px] text-slate-400 group overflow-hidden">
+      <!-- Left: Download Live -->
       <div class="flex items-center gap-1">
-        <span class="text-emerald-400 text-[9px]">↑36M</span>
+        <span class="text-cyan-400 font-bold text-[8px]">↓</span>
+        <span class="font-black text-cyan-400 text-[10px]" id="island-speed-down">84.5M</span>
+      </div>
+
+      <!-- Center: Total Data Hari Ini (Muncul saat hover/expand) -->
+      <div class="hidden group-hover:flex flex-col items-center leading-none px-1">
+        <span class="text-[7px] text-amber-400 font-bold uppercase tracking-wider">HARI INI</span>
+        <span class="text-[9px] font-black text-white" id="island-today-data">4.2 GB</span>
+      </div>
+
+      <!-- Right: Upload Live -->
+      <div class="flex items-center gap-1">
+        <span class="text-purple-400 font-bold text-[8px]">↑</span>
+        <span class="font-black text-purple-400 text-[10px]" id="island-speed-up">36.2M</span>
       </div>
     </div>
 
@@ -665,6 +676,7 @@
       period: 'hourly',
       download: 84.5,
       upload: 36.2,
+      todayGB: 4.23,
       ping: 14,
       lastHourMB: 142.8,
       ispName: 'Biznet Fiber',
@@ -745,8 +757,16 @@
     }
 
     function updateLiveDOM() {
-      // Dynamic Island
-      document.getElementById('island-speed').textContent = state.download + 'M';
+      // Dynamic Island Live
+      if (document.getElementById('island-speed-down')) {
+        document.getElementById('island-speed-down').textContent = Math.round(state.download) + 'M';
+      }
+      if (document.getElementById('island-speed-up')) {
+        document.getElementById('island-speed-up').textContent = Math.round(state.upload) + 'M';
+      }
+      if (document.getElementById('island-today-data')) {
+        document.getElementById('island-today-data').textContent = state.todayGB + ' GB';
+      }
       
       // Speed Tab
       document.getElementById('live-download-speed').textContent = state.download;

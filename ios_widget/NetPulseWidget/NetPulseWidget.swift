@@ -189,43 +189,65 @@ struct NetPulseLiveActivity: Widget {
         } dynamicIsland: { context in
             DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) {
-                    Text(context.state.isSecure ? "🟢 AMAN" : "🔴 WASPADA")
-                        .font(.system(size: 11, weight: .bold))
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("DOWNLOAD")
+                            .font(.system(size: 8, weight: .bold))
+                            .foregroundColor(Color.gray)
+                        Text(String(format: "%.1f M", context.state.downloadSpeed))
+                            .font(.system(size: 16, weight: .black))
+                            .foregroundColor(Color.cyan)
+                    }
                 }
                 DynamicIslandExpandedRegion(.trailing) {
-                    Text(context.state.isp)
-                        .font(.system(size: 11, weight: .bold))
-                        .foregroundColor(Color.cyan)
-                }
-                DynamicIslandExpandedRegion(.center) {
-                    Text("NetPulse Sentry")
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundColor(Color.gray)
-                }
-                DynamicIslandExpandedRegion(.bottom) {
-                    HStack {
-                        Text(String(format: "↓ %.1f Mbps", context.state.downloadSpeed))
-                            .font(.system(size: 15, weight: .black))
-                            .foregroundColor(Color.white)
-                        Spacer()
-                        Text(String(format: "↑ %.1f Mbps", context.state.uploadSpeed))
-                            .font(.system(size: 15, weight: .black))
+                    VStack(alignment: .trailing, spacing: 2) {
+                        Text("UPLOAD")
+                            .font(.system(size: 8, weight: .bold))
+                            .foregroundColor(Color.gray)
+                        Text(String(format: "%.1f M", context.state.uploadSpeed))
+                            .font(.system(size: 16, weight: .black))
                             .foregroundColor(Color.purple)
                     }
                 }
+                DynamicIslandExpandedRegion(.center) {
+                    VStack(spacing: 2) {
+                        Text("TOTAL HARI INI")
+                            .font(.system(size: 8, weight: .black))
+                            .foregroundColor(Color.orange)
+                        Text(String(format: "%.2f GB", context.state.todayUsageGB))
+                            .font(.system(size: 13, weight: .black))
+                            .foregroundColor(Color.white)
+                    }
+                }
+                DynamicIslandExpandedRegion(.bottom) {
+                    HStack {
+                        Text(context.state.isSecure ? "🟢 SENTRY AMAN" : "🚨 WASPADA HACK!")
+                            .font(.system(size: 10, weight: .black))
+                            .foregroundColor(context.state.isSecure ? Color.green : Color.red)
+                        Spacer()
+                        Text("📶 " + context.state.isp)
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundColor(Color.cyan)
+                    }
+                    .padding(.top, 4)
+                }
             } compactLeading: {
-                HStack(spacing: 3) {
-                    Circle()
-                        .fill(context.state.isSecure ? Color.green : Color.red)
-                        .frame(width: 6, height: 6)
+                HStack(spacing: 2) {
+                    Text("↓")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundColor(Color.cyan)
                     Text(String(format: "%.0fM", context.state.downloadSpeed))
                         .font(.system(size: 11, weight: .black))
                         .foregroundColor(Color.cyan)
                 }
             } compactTrailing: {
-                Text(String(format: "↑%.0f", context.state.uploadSpeed))
-                    .font(.system(size: 11, weight: .black))
-                    .foregroundColor(Color.purple)
+                HStack(spacing: 2) {
+                    Text("↑")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundColor(Color.purple)
+                    Text(String(format: "%.0fM", context.state.uploadSpeed))
+                        .font(.system(size: 11, weight: .black))
+                        .foregroundColor(Color.purple)
+                }
             } minimal: {
                 Circle()
                     .fill(context.state.isSecure ? Color.green : Color.red)
