@@ -45,6 +45,11 @@
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>audio</string>
+		<string>location</string>
 	</array>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>NetPulse Pro menjaga pemantauan kecepatan live tetap aktif saat Anda membuka YouTube, Instagram, dan aplikasi lain.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>NetPulse Pro menjaga pemantauan kecepatan live tetap aktif saat Anda membuka YouTube, Instagram, dan aplikasi lain.</string>
 </dict>
 </plist>

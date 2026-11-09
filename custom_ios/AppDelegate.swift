@@ -4,6 +4,40 @@ import ActivityKit
 import Network
 import CoreTelephony
 import AVFoundation
+import CoreLocation
+
+class BackgroundLocationKeepAlive: NSObject, CLLocationManagerDelegate {
+    static let shared = BackgroundLocationKeepAlive()
+    private var locationManager: CLLocationManager?
+    private(set) var isRunning = false
+
+    func start() {
+        guard !isRunning else { return }
+        DispatchQueue.main.async {
+            self.locationManager = CLLocationManager()
+            self.locationManager?.delegate = self
+            self.locationManager?.desiredAccuracy = kCLLocationAccuracyThreeKilometers
+            self.locationManager?.distanceFilter = 999999.0
+            self.locationManager?.pausesLocationUpdatesAutomatically = false
+            self.locationManager?.showsBackgroundLocationIndicator = false
+            self.locationManager?.allowsBackgroundLocationUpdates = true
+            self.locationManager?.requestAlwaysAuthorization()
+            self.locationManager?.startUpdatingLocation()
+            self.isRunning = true
+        }
+    }
+
+    func stop() {
+        DispatchQueue.main.async {
+            self.locationManager?.stopUpdatingLocation()
+            self.locationManager = nil
+            self.isRunning = false
+        }
+    }
+
+    func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {}
+    func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {}
+}
 
 class SilentAudioKeepAlive {
     static let shared = SilentAudioKeepAlive()
@@ -113,8 +147,7 @@ public struct NetPulseAttributes: ActivityAttributes {
 class NetworkSpeedMonitor {
     static let shared = NetworkSpeedMonitor()
 
-    private var lastInBytes: UInt64 = 0
-    private var lastOutBytes: UInt64 = 0
+    private var interfaceSnapshots: [String: (inBytes: UInt64, outBytes: UInt64)] = [:]
     private var lastTimestamp: Date = Date()
     private(set) var currentNetwork: String = "Wi-Fi"
     private var pathMonitor = NWPathMonitor()
@@ -188,64 +221,83 @@ class NetworkSpeedMonitor {
         conn.start(queue: monitorQueue)
     }
 
-    func getNetworkBytes() -> (inBytes: UInt64, outBytes: UInt64) {
+    func sampleSpeed() -> (downloadMbps: Double, uploadMbps: Double, todayGB: Double, isp: String, ping: Int) {
+        resetDailyCounterIfNeeded()
         var ifaddr: UnsafeMutablePointer<ifaddrs>?
-        guard getifaddrs(&ifaddr) == 0, let firstAddr = ifaddr else { return (0, 0) }
+        guard getifaddrs(&ifaddr) == 0, let firstAddr = ifaddr else {
+            return (0.0, 0.0, 0.0, currentNetwork, currentPingMs)
+        }
         defer { freeifaddrs(ifaddr) }
 
-        var totalIn: UInt64 = 0
-        var totalOut: UInt64 = 0
-
+        var currentSnapshots: [String: (inBytes: UInt64, outBytes: UInt64)] = [:]
         var ptr: UnsafeMutablePointer<ifaddrs>? = firstAddr
+
         while let current = ptr {
             if let addr = current.pointee.ifa_addr, addr.pointee.sa_family == UInt8(AF_LINK) {
                 let name = String(cString: current.pointee.ifa_name)
-                // Monitor Wi-Fi (en), Cellular (pdp_ip), and System Tunnels/iCloud Private Relay (utun, ipsec)
-                if name.hasPrefix("en") || name.hasPrefix("pdp_ip") || name.hasPrefix("utun") || name.hasPrefix("ipsec") {
+                // Filter out loopback (lo0) and AirDrop (awdl0).
+                // Capture all physical interfaces: Wi-Fi (en), Cellular (pdp_ip), Personal Hotspot (ap)
+                if !name.hasPrefix("lo") && !name.hasPrefix("awdl") {
                     if let data = current.pointee.ifa_data {
                         let ifData = data.assumingMemoryBound(to: if_data.self)
-                        totalIn += UInt64(ifData.pointee.ifi_ibytes)
-                        totalOut += UInt64(ifData.pointee.ifi_obytes)
+                        let inB = UInt64(ifData.pointee.ifi_ibytes)
+                        let outB = UInt64(ifData.pointee.ifi_obytes)
+                        currentSnapshots[name] = (inB, outB)
                     }
                 }
             }
             ptr = current.pointee.ifa_next
         }
-        return (totalIn, totalOut)
-    }
 
-    func sampleSpeed() -> (downloadMbps: Double, uploadMbps: Double, todayGB: Double, isp: String, ping: Int) {
-        resetDailyCounterIfNeeded()
-        let (currentIn, currentOut) = getNetworkBytes()
         let now = Date()
         let deltaSec = now.timeIntervalSince(lastTimestamp)
+        var deltaInTotal: UInt64 = 0
+        var deltaOutTotal: UInt64 = 0
 
-        var downMbps: Double = 0.0
-        var upMbps: Double = 0.0
+        if !interfaceSnapshots.isEmpty && deltaSec > 0.4 {
+            for (ifName, current) in currentSnapshots {
+                if let prev = interfaceSnapshots[ifName] {
+                    if current.inBytes >= prev.inBytes {
+                        let diffIn = current.inBytes - prev.inBytes
+                        if diffIn < 1_000_000_000 {
+                            deltaInTotal += diffIn
+                        }
+                    } else {
+                        // 32-bit wrap around handling
+                        let wrapIn = (UInt64(UInt32.max) - prev.inBytes) + current.inBytes
+                        if wrapIn < 1_000_000_000 {
+                            deltaInTotal += wrapIn
+                        }
+                    }
 
-        if lastInBytes > 0 && lastOutBytes > 0 && deltaSec > 0.4 {
-            let inDelta = currentIn >= lastInBytes ? currentIn - lastInBytes : 0
-            let outDelta = currentOut >= lastOutBytes ? currentOut - lastOutBytes : 0
-
-            downMbps = (Double(inDelta) * 8.0) / (deltaSec * 1_000_000.0)
-            upMbps = (Double(outDelta) * 8.0) / (deltaSec * 1_000_000.0)
-
-            let defaults = UserDefaults.standard
-            var totalToday = defaults.object(forKey: todayBytesKey) as? UInt64 ?? 0
-            totalToday += (inDelta + outDelta)
-            defaults.set(totalToday, forKey: todayBytesKey)
+                    if current.outBytes >= prev.outBytes {
+                        let diffOut = current.outBytes - prev.outBytes
+                        if diffOut < 1_000_000_000 {
+                            deltaOutTotal += diffOut
+                        }
+                    } else {
+                        let wrapOut = (UInt64(UInt32.max) - prev.outBytes) + current.outBytes
+                        if wrapOut < 1_000_000_000 {
+                            deltaOutTotal += wrapOut
+                        }
+                    }
+                }
+            }
         }
 
-        lastInBytes = currentIn
-        lastOutBytes = currentOut
+        interfaceSnapshots = currentSnapshots
         lastTimestamp = now
 
-        let defaults = UserDefaults.standard
-        let totalTodayBytes = defaults.object(forKey: todayBytesKey) as? UInt64 ?? 0
-        let todayGB = Double(totalTodayBytes) / (1024.0 * 1024.0 * 1024.0)
+        let downMbps = deltaSec > 0.4 ? (Double(deltaInTotal) * 8.0) / (deltaSec * 1_000_000.0) : 0.0
+        let upMbps = deltaSec > 0.4 ? (Double(deltaOutTotal) * 8.0) / (deltaSec * 1_000_000.0) : 0.0
 
-        // Occasionally measure ping
-        if arc4random_uniform(5) == 0 {
+        let defaults = UserDefaults.standard
+        var totalToday = defaults.object(forKey: todayBytesKey) as? UInt64 ?? 0
+        totalToday += (deltaInTotal + deltaOutTotal)
+        defaults.set(totalToday, forKey: todayBytesKey)
+        let todayGB = Double(totalToday) / (1024.0 * 1024.0 * 1024.0)
+
+        if arc4random_uniform(4) == 0 {
             measureRealPing()
         }
 
@@ -366,6 +418,7 @@ class NetworkSpeedMonitor {
             )
             self.currentActivity = activity
             SilentAudioKeepAlive.shared.start()
+            BackgroundLocationKeepAlive.shared.start()
             self.startNativeLiveTimer()
             result(true)
         } catch {
@@ -430,6 +483,7 @@ class NetworkSpeedMonitor {
     @available(iOS 16.1, *)
     private func stopLiveActivityFlow(result: @escaping FlutterResult) {
         SilentAudioKeepAlive.shared.stop()
+        BackgroundLocationKeepAlive.shared.stop()
 
         if let activity = self.currentActivity as? Activity<NetPulseAttributes> {
             Task {
