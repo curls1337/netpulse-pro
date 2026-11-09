@@ -103,6 +103,30 @@ class NetworkSpeedMonitor {
         }
     }
 
+    private var currentPingMs: Int = 14
+
+    func measureRealPing() {
+        let host = NWEndpoint.Host("1.1.1.1")
+        let port = NWEndpoint.Port(integerLiteral: 443)
+        let conn = NWConnection(host: host, port: port, using: .tcp)
+        let start = Date()
+        conn.stateUpdateHandler = { [weak self] state in
+            switch state {
+            case .ready:
+                let ms = Int(Date().timeIntervalSince(start) * 1000.0)
+                if ms > 0 && ms < 2000 {
+                    self?.currentPingMs = ms
+                }
+                conn.cancel()
+            case .failed(_), .cancelled:
+                conn.cancel()
+            default:
+                break
+            }
+        }
+        conn.start(queue: monitorQueue)
+    }
+
     func getNetworkBytes() -> (inBytes: UInt64, outBytes: UInt64) {
         var ifaddr: UnsafeMutablePointer<ifaddrs>?
         guard getifaddrs(&ifaddr) == 0, let firstAddr = ifaddr else { return (0, 0) }
@@ -113,12 +137,15 @@ class NetworkSpeedMonitor {
 
         var ptr: UnsafeMutablePointer<ifaddrs>? = firstAddr
         while let current = ptr {
-            let name = String(cString: current.pointee.ifa_name)
-            if name.hasPrefix("en") || name.hasPrefix("pdp_ip") {
-                if let data = current.pointee.ifa_data {
-                    let ifData = data.assumingMemoryBound(to: if_data.self)
-                    totalIn += UInt64(ifData.pointee.ifi_ibytes)
-                    totalOut += UInt64(ifData.pointee.ifi_obytes)
+            if let addr = current.pointee.ifa_addr, addr.pointee.sa_family == UInt8(AF_LINK) {
+                let name = String(cString: current.pointee.ifa_name)
+                // Monitor Wi-Fi (en), Cellular (pdp_ip), and System Tunnels/iCloud Private Relay (utun, ipsec)
+                if name.hasPrefix("en") || name.hasPrefix("pdp_ip") || name.hasPrefix("utun") || name.hasPrefix("ipsec") {
+                    if let data = current.pointee.ifa_data {
+                        let ifData = data.assumingMemoryBound(to: if_data.self)
+                        totalIn += UInt64(ifData.pointee.ifi_ibytes)
+                        totalOut += UInt64(ifData.pointee.ifi_obytes)
+                    }
                 }
             }
             ptr = current.pointee.ifa_next
@@ -126,7 +153,7 @@ class NetworkSpeedMonitor {
         return (totalIn, totalOut)
     }
 
-    func sampleSpeed() -> (downloadMbps: Double, uploadMbps: Double, todayGB: Double, isp: String) {
+    func sampleSpeed() -> (downloadMbps: Double, uploadMbps: Double, todayGB: Double, isp: String, ping: Int) {
         resetDailyCounterIfNeeded()
         let (currentIn, currentOut) = getNetworkBytes()
         let now = Date()
@@ -135,7 +162,7 @@ class NetworkSpeedMonitor {
         var downMbps: Double = 0.0
         var upMbps: Double = 0.0
 
-        if lastInBytes > 0 && lastOutBytes > 0 && deltaSec > 0.5 {
+        if lastInBytes > 0 && lastOutBytes > 0 && deltaSec > 0.4 {
             let inDelta = currentIn >= lastInBytes ? currentIn - lastInBytes : 0
             let outDelta = currentOut >= lastOutBytes ? currentOut - lastOutBytes : 0
 
@@ -156,7 +183,12 @@ class NetworkSpeedMonitor {
         let totalTodayBytes = defaults.object(forKey: todayBytesKey) as? UInt64 ?? 0
         let todayGB = Double(totalTodayBytes) / (1024.0 * 1024.0 * 1024.0)
 
-        return (downMbps, upMbps, todayGB, currentNetwork)
+        // Occasionally measure ping
+        if arc4random_uniform(5) == 0 {
+            measureRealPing()
+        }
+
+        return (downMbps, upMbps, todayGB, currentNetwork, currentPingMs)
     }
 }
 
@@ -217,6 +249,12 @@ class NetworkSpeedMonitor {
         }
 
         GeneratedPluginRegistrant.register(with: self)
+
+        // Automatically start real hardware speed monitor on app launch
+        if #available(iOS 16.1, *) {
+            self.startNativeLiveTimer()
+        }
+
         return super.application(application, didFinishLaunchingWithOptions: launchOptions)
     }
 
@@ -243,7 +281,6 @@ class NetworkSpeedMonitor {
     @available(iOS 16.1, *)
     private func startLiveActivityFlow(result: @escaping FlutterResult) {
         let sample = NetworkSpeedMonitor.shared.sampleSpeed()
-        let pingVal = sample.isp.contains("Wi-Fi") ? 12 : 28
         let downText = formatSpeedText(sample.downloadMbps, unit: selectedUnit)
         let upText = formatSpeedText(sample.uploadMbps, unit: selectedUnit)
 
@@ -254,7 +291,7 @@ class NetworkSpeedMonitor {
             todayUsageGB: sample.todayGB,
             isSecure: sample.uploadMbps < 40.0,
             isp: sample.isp,
-            ping: pingVal,
+            ping: sample.ping,
             unit: selectedUnit,
             downloadDisplay: downText,
             uploadDisplay: upText
@@ -277,12 +314,11 @@ class NetworkSpeedMonitor {
     @available(iOS 16.1, *)
     private func startNativeLiveTimer() {
         liveTimer?.invalidate()
-        // Native background loop updating Dynamic Island continuously
-        liveTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) { [weak self] _ in
+        // Native background loop updating Dynamic Island and app continuously
+        liveTimer = Timer.scheduledTimer(withTimeInterval: 1.2, repeats: true) { [weak self] _ in
             guard let self = self else { return }
             let sample = NetworkSpeedMonitor.shared.sampleSpeed()
             let isSecure = (sample.uploadMbps < 40.0)
-            let pingVal = sample.isp.contains("Wi-Fi") ? 12 : 28
             let downText = self.formatSpeedText(sample.downloadMbps, unit: self.selectedUnit)
             let upText = self.formatSpeedText(sample.uploadMbps, unit: self.selectedUnit)
 
@@ -292,7 +328,7 @@ class NetworkSpeedMonitor {
                 todayUsageGB: sample.todayGB,
                 isSecure: isSecure,
                 isp: sample.isp,
-                ping: pingVal,
+                ping: sample.ping,
                 unit: self.selectedUnit,
                 downloadDisplay: downText,
                 uploadDisplay: upText
@@ -311,7 +347,7 @@ class NetworkSpeedMonitor {
                     "todayGB": sample.todayGB,
                     "isp": sample.isp,
                     "isSecure": isSecure,
-                    "ping": pingVal,
+                    "ping": sample.ping,
                     "downloadDisplay": downText,
                     "uploadDisplay": upText
                 ])

@@ -105,7 +105,6 @@ class _MainShellState extends State<MainShell> {
   @override
   void initState() {
     super.initState();
-    _startSimulatedMetrics();
     _setupNativeSpeedListener();
   }
 
@@ -113,23 +112,23 @@ class _MainShellState extends State<MainShell> {
     _liveActivityChannel.setMethodCallHandler((call) async {
       if (call.method == 'onSpeedUpdate') {
         final args = call.arguments as Map<dynamic, dynamic>? ?? {};
-        if (mounted) {
+        if (mounted && !_isTesting) {
           setState(() {
-            final down = (args['download'] as num?)?.toDouble() ?? 0.0;
-            final up = (args['upload'] as num?)?.toDouble() ?? 0.0;
+            _downloadSpeed = (args['download'] as num?)?.toDouble() ?? _downloadSpeed;
+            _uploadSpeed = (args['upload'] as num?)?.toDouble() ?? _uploadSpeed;
             final today = (args['todayGB'] as num?)?.toDouble() ?? 0.0;
             final isp = (args['isp'] as String?) ?? '';
+            final pingVal = (args['ping'] as num?)?.toInt() ?? 0;
 
-            if (down > 0 || up > 0) {
-              _downloadSpeed = double.parse(down.toStringAsFixed(1));
-              _uploadSpeed = double.parse(up.toStringAsFixed(1));
-            }
             if (today > 0) {
               _todayUsageGB = double.parse(today.toStringAsFixed(2));
             }
             if (isp.isNotEmpty) {
               _ispName = isp;
               _networkType = isp.contains('Wi-Fi') ? 'Wi-Fi' : 'Seluler 5G/LTE';
+            }
+            if (pingVal > 0) {
+              _ping = pingVal;
             }
           });
         }
