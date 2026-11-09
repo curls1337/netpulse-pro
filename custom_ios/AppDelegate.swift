@@ -386,12 +386,47 @@ class NetworkSpeedMonitor {
                         SilentAudioKeepAlive.shared.start()
                         BackgroundLocationKeepAlive.shared.start()
                     }
+                } else if UserDefaults.standard.bool(forKey: "NetPulse_LiveActivityEnabled") {
+                    DispatchQueue.main.async {
+                        self.startLiveActivityFlow { _ in }
+                    }
                 }
             }
             self.startNativeLiveTimer()
         }
 
         return super.application(application, didFinishLaunchingWithOptions: launchOptions)
+    }
+
+    override func applicationDidBecomeActive(_ application: UIApplication) {
+        super.applicationDidBecomeActive(application)
+        if #available(iOS 16.1, *) {
+            Task {
+                let all = Activity<NetPulseAttributes>.activities
+                if all.count > 1 {
+                    for zombie in all.dropLast() {
+                        if #available(iOS 16.2, *) {
+                            await zombie.end(nil, dismissalPolicy: .immediate)
+                        } else {
+                            await zombie.end(dismissalPolicy: .immediate)
+                        }
+                    }
+                }
+                let hasActive = !Activity<NetPulseAttributes>.activities.isEmpty
+                if let active = Activity<NetPulseAttributes>.activities.last {
+                    DispatchQueue.main.async {
+                        self.currentActivity = active
+                        SilentAudioKeepAlive.shared.start()
+                        BackgroundLocationKeepAlive.shared.start()
+                        self.liveChannel?.invokeMethod("onLiveActivityStateChanged", arguments: ["active": true])
+                    }
+                } else {
+                    DispatchQueue.main.async {
+                        self.liveChannel?.invokeMethod("onLiveActivityStateChanged", arguments: ["active": hasActive])
+                    }
+                }
+            }
+        }
     }
 
     @available(iOS 16.1, *)
@@ -466,6 +501,7 @@ class NetworkSpeedMonitor {
 
                 DispatchQueue.main.async {
                     self.currentActivity = activity
+                    UserDefaults.standard.set(true, forKey: "NetPulse_LiveActivityEnabled")
                     SilentAudioKeepAlive.shared.start()
                     BackgroundLocationKeepAlive.shared.start()
                     self.startNativeLiveTimer()
@@ -555,6 +591,7 @@ class NetworkSpeedMonitor {
     private func stopLiveActivityFlow(result: @escaping FlutterResult) {
         SilentAudioKeepAlive.shared.stop()
         BackgroundLocationKeepAlive.shared.stop()
+        UserDefaults.standard.set(false, forKey: "NetPulse_LiveActivityEnabled")
 
         Task {
             // Dismiss ALL activities immediately so none are left frozen on Lock Screen or Dynamic Island

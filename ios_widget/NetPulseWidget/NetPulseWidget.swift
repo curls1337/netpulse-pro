@@ -236,8 +236,10 @@ struct NetPulseLiveActivity: Widget {
                         .font(.system(size: 9, weight: .bold))
                         .foregroundColor(Color.cyan)
                     Text(context.state.downloadDisplay)
-                        .font(.system(size: 11, weight: .black))
+                        .font(.system(size: 11, weight: .black, design: .rounded))
                         .foregroundColor(Color.cyan)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.65)
                 }
             } compactTrailing: {
                 HStack(spacing: 2) {
@@ -245,8 +247,10 @@ struct NetPulseLiveActivity: Widget {
                         .font(.system(size: 9, weight: .bold))
                         .foregroundColor(Color.purple)
                     Text(context.state.uploadDisplay)
-                        .font(.system(size: 11, weight: .black))
+                        .font(.system(size: 11, weight: .black, design: .rounded))
                         .foregroundColor(Color.purple)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.65)
                 }
             } minimal: {
                 Circle()

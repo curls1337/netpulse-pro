@@ -120,7 +120,13 @@ class _MainShellState extends State<MainShell> {
 
   void _setupNativeSpeedListener() {
     _liveActivityChannel.setMethodCallHandler((call) async {
-      if (call.method == 'onSpeedUpdate') {
+      if (call.method == 'onLiveActivityStateChanged') {
+        final args = call.arguments as Map<dynamic, dynamic>? ?? {};
+        final active = args['active'] as bool? ?? false;
+        if (mounted) {
+          setState(() => _isDynamicIslandActive = active);
+        }
+      } else if (call.method == 'onSpeedUpdate') {
         final args = call.arguments as Map<dynamic, dynamic>? ?? {};
         if (mounted && !_isTesting) {
           setState(() {
