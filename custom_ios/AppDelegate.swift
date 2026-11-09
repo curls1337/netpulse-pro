@@ -3,6 +3,67 @@ import Flutter
 import ActivityKit
 import Network
 import CoreTelephony
+import AVFoundation
+
+class SilentAudioKeepAlive {
+    static let shared = SilentAudioKeepAlive()
+    private var audioPlayer: AVAudioPlayer?
+    private(set) var isRunning = false
+
+    func start() {
+        guard !isRunning else { return }
+        do {
+            try AVAudioSession.sharedInstance().setCategory(.playback, mode: .default, options: [.mixWithOthers])
+            try AVAudioSession.sharedInstance().setActive(true)
+
+            let sampleRate: Int = 44100
+            let numChannels: Int = 1
+            let bitsPerSample: Int = 16
+            let numSamples = sampleRate
+            let dataSize = numSamples * numChannels * (bitsPerSample / 8)
+            var data = Data()
+
+            data.append(contentsOf: [0x52, 0x49, 0x46, 0x46])
+            var chunkSize = UInt32(36 + dataSize).littleEndian
+            data.append(Data(bytes: &chunkSize, count: 4))
+            data.append(contentsOf: [0x57, 0x41, 0x56, 0x45])
+            data.append(contentsOf: [0x66, 0x6D, 0x74, 0x20])
+            var subchunk1Size = UInt32(16).littleEndian
+            data.append(Data(bytes: &subchunk1Size, count: 4))
+            var audioFormat = UInt16(1).littleEndian
+            data.append(Data(bytes: &audioFormat, count: 2))
+            var channels = UInt16(numChannels).littleEndian
+            data.append(Data(bytes: &channels, count: 2))
+            var sRate = UInt32(sampleRate).littleEndian
+            data.append(Data(bytes: &sRate, count: 4))
+            var byteRate = UInt32(sampleRate * numChannels * (bitsPerSample / 8)).littleEndian
+            data.append(Data(bytes: &byteRate, count: 4))
+            var blockAlign = UInt16(numChannels * (bitsPerSample / 8)).littleEndian
+            data.append(Data(bytes: &blockAlign, count: 2))
+            var bPerSample = UInt16(bitsPerSample).littleEndian
+            data.append(Data(bytes: &bPerSample, count: 2))
+            data.append(contentsOf: [0x64, 0x61, 0x74, 0x61])
+            var dSize = UInt32(dataSize).littleEndian
+            data.append(Data(bytes: &dSize, count: 4))
+            data.append(Data(repeating: 0, count: dataSize))
+
+            audioPlayer = try AVAudioPlayer(data: data)
+            audioPlayer?.numberOfLoops = -1
+            audioPlayer?.volume = 0.0
+            audioPlayer?.play()
+            isRunning = true
+        } catch {
+            print("Silent audio keep-alive error: \(error)")
+        }
+    }
+
+    func stop() {
+        audioPlayer?.stop()
+        audioPlayer = nil
+        isRunning = false
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+    }
+}
 
 public struct NetPulseAttributes: ActivityAttributes {
     public struct ContentState: Codable, Hashable {
@@ -304,6 +365,7 @@ class NetworkSpeedMonitor {
                 pushType: nil
             )
             self.currentActivity = activity
+            SilentAudioKeepAlive.shared.start()
             self.startNativeLiveTimer()
             result(true)
         } catch {
@@ -315,7 +377,7 @@ class NetworkSpeedMonitor {
     private func startNativeLiveTimer() {
         liveTimer?.invalidate()
         // Native background loop updating Dynamic Island and app continuously
-        liveTimer = Timer.scheduledTimer(withTimeInterval: 1.2, repeats: true) { [weak self] _ in
+        let timer = Timer(timeInterval: 1.5, repeats: true) { [weak self] _ in
             guard let self = self else { return }
             let sample = NetworkSpeedMonitor.shared.sampleSpeed()
             let isSecure = (sample.uploadMbps < 40.0)
@@ -336,7 +398,12 @@ class NetworkSpeedMonitor {
 
             if let activity = self.currentActivity as? Activity<NetPulseAttributes> {
                 Task {
-                    await activity.update(using: updatedContent)
+                    if #available(iOS 16.2, *) {
+                        let content = ActivityContent(state: updatedContent, staleDate: nil)
+                        await activity.update(content)
+                    } else {
+                        await activity.update(using: updatedContent)
+                    }
                 }
             }
 
@@ -353,12 +420,13 @@ class NetworkSpeedMonitor {
                 ])
             }
         }
+        RunLoop.main.add(timer, forMode: .common)
+        self.liveTimer = timer
     }
 
     @available(iOS 16.1, *)
     private func stopLiveActivityFlow(result: @escaping FlutterResult) {
-        liveTimer?.invalidate()
-        liveTimer = nil
+        SilentAudioKeepAlive.shared.stop()
 
         if let activity = self.currentActivity as? Activity<NetPulseAttributes> {
             Task {
