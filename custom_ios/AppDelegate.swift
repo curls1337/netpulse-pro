@@ -339,6 +339,10 @@ class NetworkSpeedMonitor {
                 case "stopLiveActivity":
                     self.stopLiveActivityFlow(result: result)
 
+                case "isLiveActivityActive":
+                    let count = Activity<NetPulseAttributes>.activities.count
+                    result(count > 0)
+
                 case "setSpeedUnit":
                     let args = call.arguments as? [String: Any] ?? [:]
                     self.selectedUnit = args["unit"] as? String ?? "Auto"
@@ -363,8 +367,27 @@ class NetworkSpeedMonitor {
 
         GeneratedPluginRegistrant.register(with: self)
 
-        // Automatically start real hardware speed monitor on app launch
+        // Automatically attach to active Live Activity if already running on launch, or clean up duplicates
         if #available(iOS 16.1, *) {
+            Task {
+                let all = Activity<NetPulseAttributes>.activities
+                if all.count > 1 {
+                    for zombie in all.dropLast() {
+                        if #available(iOS 16.2, *) {
+                            await zombie.end(nil, dismissalPolicy: .immediate)
+                        } else {
+                            await zombie.end(dismissalPolicy: .immediate)
+                        }
+                    }
+                }
+                if let active = Activity<NetPulseAttributes>.activities.last {
+                    DispatchQueue.main.async {
+                        self.currentActivity = active
+                        SilentAudioKeepAlive.shared.start()
+                        BackgroundLocationKeepAlive.shared.start()
+                    }
+                }
+            }
             self.startNativeLiveTimer()
         }
 
@@ -393,36 +416,66 @@ class NetworkSpeedMonitor {
 
     @available(iOS 16.1, *)
     private func startLiveActivityFlow(result: @escaping FlutterResult) {
-        let sample = NetworkSpeedMonitor.shared.sampleSpeed()
-        let downText = formatSpeedText(sample.downloadMbps, unit: selectedUnit)
-        let upText = formatSpeedText(sample.uploadMbps, unit: selectedUnit)
+        Task {
+            // 1. Immediately terminate ANY AND ALL existing activities to prevent duplicate cards & freeze
+            for existing in Activity<NetPulseAttributes>.activities {
+                if #available(iOS 16.2, *) {
+                    await existing.end(nil, dismissalPolicy: .immediate)
+                } else {
+                    await existing.end(dismissalPolicy: .immediate)
+                }
+            }
 
-        let attributes = NetPulseAttributes(appName: "NetPulse Pro")
-        let initialContent = NetPulseAttributes.ContentState(
-            downloadSpeed: sample.downloadMbps,
-            uploadSpeed: sample.uploadMbps,
-            todayUsageGB: sample.todayGB,
-            isSecure: sample.uploadMbps < 40.0,
-            isp: sample.isp,
-            ping: sample.ping,
-            unit: selectedUnit,
-            downloadDisplay: downText,
-            uploadDisplay: upText
-        )
+            let sample = NetworkSpeedMonitor.shared.sampleSpeed()
+            let downText = self.formatSpeedText(sample.downloadMbps, unit: self.selectedUnit)
+            let upText = self.formatSpeedText(sample.uploadMbps, unit: self.selectedUnit)
 
-        do {
-            let activity = try Activity<NetPulseAttributes>.request(
-                attributes: attributes,
-                contentState: initialContent,
-                pushType: nil
+            let attributes = NetPulseAttributes(appName: "NetPulse Pro")
+            let initialContent = NetPulseAttributes.ContentState(
+                downloadSpeed: sample.downloadMbps,
+                uploadSpeed: sample.uploadMbps,
+                todayUsageGB: sample.todayGB,
+                isSecure: sample.uploadMbps < 40.0,
+                isp: sample.isp,
+                ping: sample.ping,
+                unit: self.selectedUnit,
+                downloadDisplay: downText,
+                uploadDisplay: upText
             )
-            self.currentActivity = activity
-            SilentAudioKeepAlive.shared.start()
-            BackgroundLocationKeepAlive.shared.start()
-            self.startNativeLiveTimer()
-            result(true)
-        } catch {
-            result(FlutterError(code: "START_FAILED", message: error.localizedDescription, details: nil))
+
+            do {
+                let activity: Activity<NetPulseAttributes>
+                if #available(iOS 16.2, *) {
+                    let content = ActivityContent(
+                        state: initialContent,
+                        staleDate: Date().addingTimeInterval(8.0),
+                        relevanceScore: 100.0
+                    )
+                    activity = try Activity<NetPulseAttributes>.request(
+                        attributes: attributes,
+                        content: content,
+                        pushType: nil
+                    )
+                } else {
+                    activity = try Activity<NetPulseAttributes>.request(
+                        attributes: attributes,
+                        contentState: initialContent,
+                        pushType: nil
+                    )
+                }
+
+                DispatchQueue.main.async {
+                    self.currentActivity = activity
+                    SilentAudioKeepAlive.shared.start()
+                    BackgroundLocationKeepAlive.shared.start()
+                    self.startNativeLiveTimer()
+                    result(true)
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    result(FlutterError(code: "START_FAILED", message: error.localizedDescription, details: nil))
+                }
+            }
         }
     }
 
@@ -449,16 +502,34 @@ class NetworkSpeedMonitor {
                 uploadDisplay: upText
             )
 
-            // Re-acquire active activity if pointer was unlinked
-            let activeActivity = (self.currentActivity as? Activity<NetPulseAttributes>) ?? Activity<NetPulseAttributes>.activities.first
-            if let activity = activeActivity {
-                self.currentActivity = activity
-                Task {
+            Task {
+                let allActivities = Activity<NetPulseAttributes>.activities
+                guard !allActivities.isEmpty else { return }
+
+                // Enforce strictly single Live Activity: dismiss any duplicate zombies!
+                if allActivities.count > 1 {
+                    for zombie in allActivities.dropLast() {
+                        if #available(iOS 16.2, *) {
+                            await zombie.end(nil, dismissalPolicy: .immediate)
+                        } else {
+                            await zombie.end(dismissalPolicy: .immediate)
+                        }
+                    }
+                }
+
+                if let active = allActivities.last {
+                    DispatchQueue.main.async {
+                        self.currentActivity = active
+                    }
                     if #available(iOS 16.2, *) {
-                        let content = ActivityContent(state: updatedContent, staleDate: Date().addingTimeInterval(3.0), relevanceScore: 100.0)
-                        await activity.update(content)
+                        let content = ActivityContent(
+                            state: updatedContent,
+                            staleDate: Date().addingTimeInterval(8.0),
+                            relevanceScore: 100.0
+                        )
+                        await active.update(content)
                     } else {
-                        await activity.update(using: updatedContent)
+                        await active.update(using: updatedContent)
                     }
                 }
             }
@@ -485,12 +556,19 @@ class NetworkSpeedMonitor {
         SilentAudioKeepAlive.shared.stop()
         BackgroundLocationKeepAlive.shared.stop()
 
-        if let activity = self.currentActivity as? Activity<NetPulseAttributes> {
-            Task {
-                await activity.end(dismissalPolicy: .immediate)
+        Task {
+            // Dismiss ALL activities immediately so none are left frozen on Lock Screen or Dynamic Island
+            for act in Activity<NetPulseAttributes>.activities {
+                if #available(iOS 16.2, *) {
+                    await act.end(nil, dismissalPolicy: .immediate)
+                } else {
+                    await act.end(dismissalPolicy: .immediate)
+                }
+            }
+            DispatchQueue.main.async {
+                self.currentActivity = nil
+                result(true)
             }
         }
-        self.currentActivity = nil
-        result(true)
     }
 }

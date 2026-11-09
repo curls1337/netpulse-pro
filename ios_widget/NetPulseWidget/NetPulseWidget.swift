@@ -175,8 +175,8 @@ struct NetPulseLiveActivity: Widget {
                         Text(context.state.isSecure ? "ANTI-HACK SENTRY: AMAN" : "🚨 WASPADA: LONJAKAN TRAFIK!")
                             .font(.system(size: 11, weight: .black))
                             .foregroundColor(context.state.isSecure ? Color.green : Color.red)
-                        Text(String(format: "%.1f Mbps Down • %.1f Mbps Up", context.state.downloadSpeed, context.state.uploadSpeed))
-                            .font(.system(size: 10, weight: .medium))
+                        Text("↓ \(context.state.downloadDisplay) Down • ↑ \(context.state.uploadDisplay) Up")
+                            .font(.system(size: 11, weight: .bold, design: .rounded))
                             .foregroundColor(.white)
                     }
                     Spacer()
@@ -193,8 +193,8 @@ struct NetPulseLiveActivity: Widget {
                         Text("DOWNLOAD")
                             .font(.system(size: 8, weight: .bold))
                             .foregroundColor(Color.gray)
-                        Text(String(format: "%.1f M", context.state.downloadSpeed))
-                            .font(.system(size: 16, weight: .black))
+                        Text(context.state.downloadDisplay)
+                            .font(.system(size: 16, weight: .black, design: .rounded))
                             .foregroundColor(Color.cyan)
                     }
                 }
@@ -203,8 +203,8 @@ struct NetPulseLiveActivity: Widget {
                         Text("UPLOAD")
                             .font(.system(size: 8, weight: .bold))
                             .foregroundColor(Color.gray)
-                        Text(String(format: "%.1f M", context.state.uploadSpeed))
-                            .font(.system(size: 16, weight: .black))
+                        Text(context.state.uploadDisplay)
+                            .font(.system(size: 16, weight: .black, design: .rounded))
                             .foregroundColor(Color.purple)
                     }
                 }

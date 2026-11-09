@@ -106,6 +106,16 @@ class _MainShellState extends State<MainShell> {
   void initState() {
     super.initState();
     _setupNativeSpeedListener();
+    _checkExistingLiveActivity();
+  }
+
+  Future<void> _checkExistingLiveActivity() async {
+    try {
+      final active = await _liveActivityChannel.invokeMethod<bool>('isLiveActivityActive') ?? false;
+      if (mounted && active) {
+        setState(() => _isDynamicIslandActive = true);
+      }
+    } catch (_) {}
   }
 
   void _setupNativeSpeedListener() {
