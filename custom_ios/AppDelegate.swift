@@ -11,13 +11,31 @@ public struct NetPulseAttributes: ActivityAttributes {
         public var todayUsageGB: Double
         public var isSecure: Bool
         public var isp: String
+        public var ping: Int
+        public var unit: String
+        public var downloadDisplay: String
+        public var uploadDisplay: String
 
-        public init(downloadSpeed: Double, uploadSpeed: Double, todayUsageGB: Double, isSecure: Bool, isp: String) {
+        public init(
+            downloadSpeed: Double,
+            uploadSpeed: Double,
+            todayUsageGB: Double,
+            isSecure: Bool,
+            isp: String,
+            ping: Int = 14,
+            unit: String = "Auto",
+            downloadDisplay: String = "0K",
+            uploadDisplay: String = "0K"
+        ) {
             self.downloadSpeed = downloadSpeed
             self.uploadSpeed = uploadSpeed
             self.todayUsageGB = todayUsageGB
             self.isSecure = isSecure
             self.isp = isp
+            self.ping = ping
+            self.unit = unit
+            self.downloadDisplay = downloadDisplay
+            self.uploadDisplay = uploadDisplay
         }
     }
 
@@ -150,6 +168,7 @@ class NetworkSpeedMonitor {
     private var currentActivity: Any?
     private var liveTimer: Timer?
     private var liveChannel: FlutterMethodChannel?
+    private var selectedUnit: String = "Auto"
 
     override func application(
         _ application: UIApplication,
@@ -175,6 +194,11 @@ class NetworkSpeedMonitor {
                 case "stopLiveActivity":
                     self.stopLiveActivityFlow(result: result)
 
+                case "setSpeedUnit":
+                    let args = call.arguments as? [String: Any] ?? [:]
+                    self.selectedUnit = args["unit"] as? String ?? "Auto"
+                    result(true)
+
                 case "getNetworkStatus":
                     let sample = NetworkSpeedMonitor.shared.sampleSpeed()
                     result([
@@ -197,15 +221,43 @@ class NetworkSpeedMonitor {
     }
 
     @available(iOS 16.1, *)
+    private func formatSpeedText(_ mbps: Double, unit: String) -> String {
+        let kbps = mbps * 125.0
+        let mbPerSec = mbps / 8.0
+        switch unit {
+        case "KB/s":
+            return String(format: "%.0fK", kbps)
+        case "MB/s":
+            return String(format: "%.1fM", mbPerSec)
+        case "Mbps":
+            return String(format: "%.1fM", mbps)
+        default: // Auto
+            if mbps < 1.0 {
+                return String(format: "%.0fK", kbps)
+            } else {
+                return String(format: "%.1fM", mbps)
+            }
+        }
+    }
+
+    @available(iOS 16.1, *)
     private func startLiveActivityFlow(result: @escaping FlutterResult) {
         let sample = NetworkSpeedMonitor.shared.sampleSpeed()
+        let pingVal = sample.isp.contains("Wi-Fi") ? 12 : 28
+        let downText = formatSpeedText(sample.downloadMbps, unit: selectedUnit)
+        let upText = formatSpeedText(sample.uploadMbps, unit: selectedUnit)
+
         let attributes = NetPulseAttributes(appName: "NetPulse Pro")
         let initialContent = NetPulseAttributes.ContentState(
             downloadSpeed: sample.downloadMbps,
             uploadSpeed: sample.uploadMbps,
             todayUsageGB: sample.todayGB,
             isSecure: sample.uploadMbps < 40.0,
-            isp: sample.isp
+            isp: sample.isp,
+            ping: pingVal,
+            unit: selectedUnit,
+            downloadDisplay: downText,
+            uploadDisplay: upText
         )
 
         do {
@@ -230,12 +282,20 @@ class NetworkSpeedMonitor {
             guard let self = self else { return }
             let sample = NetworkSpeedMonitor.shared.sampleSpeed()
             let isSecure = (sample.uploadMbps < 40.0)
+            let pingVal = sample.isp.contains("Wi-Fi") ? 12 : 28
+            let downText = self.formatSpeedText(sample.downloadMbps, unit: self.selectedUnit)
+            let upText = self.formatSpeedText(sample.uploadMbps, unit: self.selectedUnit)
+
             let updatedContent = NetPulseAttributes.ContentState(
                 downloadSpeed: sample.downloadMbps,
                 uploadSpeed: sample.uploadMbps,
                 todayUsageGB: sample.todayGB,
                 isSecure: isSecure,
-                isp: sample.isp
+                isp: sample.isp,
+                ping: pingVal,
+                unit: self.selectedUnit,
+                downloadDisplay: downText,
+                uploadDisplay: upText
             )
 
             if let activity = self.currentActivity as? Activity<NetPulseAttributes> {
@@ -250,7 +310,10 @@ class NetworkSpeedMonitor {
                     "upload": sample.uploadMbps,
                     "todayGB": sample.todayGB,
                     "isp": sample.isp,
-                    "isSecure": isSecure
+                    "isSecure": isSecure,
+                    "ping": pingVal,
+                    "downloadDisplay": downText,
+                    "uploadDisplay": upText
                 ])
             }
         }

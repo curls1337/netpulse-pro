@@ -89,8 +89,18 @@ class _MainShellState extends State<MainShell> {
   // Dynamic Island (Live Activity)
   static const _liveActivityChannel = MethodChannel('com.devcurl.netpulse/live_activity');
   bool _isDynamicIslandActive = false;
+  String _speedUnit = 'Auto'; // 'Auto', 'Mbps', 'KB/s', 'MB/s'
 
   Timer? _metricsTimer;
+
+  Future<void> _setSpeedUnit(String unit) async {
+    setState(() => _speedUnit = unit);
+    try {
+      await _liveActivityChannel.invokeMethod('setSpeedUnit', {'unit': unit});
+    } catch (e) {
+      debugPrint('Unit update error: $e');
+    }
+  }
 
   @override
   void initState() {
@@ -220,6 +230,8 @@ class _MainShellState extends State<MainShell> {
         onRunTest: _runSpeedtest,
         isDynamicIsland: _isDynamicIslandActive,
         onToggleDynamicIsland: _toggleDynamicIsland,
+        speedUnit: _speedUnit,
+        onSelectSpeedUnit: _setSpeedUnit,
       ),
       AnalyticsTab(todayGB: _todayUsageGB, monthGB: _monthUsageGB, quotaGB: _monthlyQuotaGB),
       WidgetsGalleryTab(
@@ -290,6 +302,8 @@ class DashboardTab extends StatelessWidget {
   final VoidCallback onRunTest;
   final bool isDynamicIsland;
   final ValueChanged<bool> onToggleDynamicIsland;
+  final String speedUnit;
+  final ValueChanged<String> onSelectSpeedUnit;
 
   const DashboardTab({
     super.key,
@@ -305,7 +319,37 @@ class DashboardTab extends StatelessWidget {
     required this.onRunTest,
     required this.isDynamicIsland,
     required this.onToggleDynamicIsland,
+    required this.speedUnit,
+    required this.onSelectSpeedUnit,
   });
+
+  String getFormattedSpeed(double mbps) {
+    final kbps = mbps * 125.0;
+    final mbPerSec = mbps / 8.0;
+    switch (speedUnit) {
+      case 'KB/s':
+        return kbps.toStringAsFixed(0);
+      case 'MB/s':
+        return mbPerSec.toStringAsFixed(2);
+      case 'Mbps':
+        return mbps.toStringAsFixed(1);
+      default:
+        return (mbps < 1.0) ? kbps.toStringAsFixed(0) : mbps.toStringAsFixed(1);
+    }
+  }
+
+  String getSpeedUnitLabel(double mbps) {
+    switch (speedUnit) {
+      case 'KB/s':
+        return 'KB/s';
+      case 'MB/s':
+        return 'MB/s';
+      case 'Mbps':
+        return 'Mbps';
+      default:
+        return (mbps < 1.0) ? 'KB/s' : 'Mbps';
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -517,7 +561,39 @@ class DashboardTab extends StatelessWidget {
                     color: isTesting ? const Color(0xFFF59E0B) : const Color(0xFF94A3B8),
                   ),
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 12),
+
+                // Speed Unit Selector Chips (Auto, Mbps, KB/s, MB/s)
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: ['Auto', 'Mbps', 'KB/s', 'MB/s'].map((u) {
+                    final isSel = speedUnit == u;
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 3),
+                      child: GestureDetector(
+                        onTap: () => onSelectSpeedUnit(u),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: isSel ? const Color(0xFF06B6D4) : Colors.white.withOpacity(0.06),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: isSel ? const Color(0xFF06B6D4) : Colors.white12),
+                          ),
+                          child: Text(
+                            u,
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: isSel ? FontWeight.bold : FontWeight.w600,
+                              color: isSel ? const Color(0xFF090D16) : Colors.white70,
+                            ),
+                          ),
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                ),
+
+                const SizedBox(height: 14),
                 // Main Speed Display
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
@@ -525,24 +601,24 @@ class DashboardTab extends StatelessWidget {
                   textBaseline: TextBaseline.alphabetic,
                   children: [
                     Text(
-                      download.toStringAsFixed(1),
+                      getFormattedSpeed(download),
                       style: const TextStyle(
-                        fontSize: 64,
+                        fontSize: 60,
                         fontWeight: FontWeight.w900,
                         letterSpacing: -2,
                         color: Colors.white,
                       ),
                     ),
                     const SizedBox(width: 8),
-                    const Text(
-                      'Mbps',
-                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF06B6D4)),
+                    Text(
+                      getSpeedUnitLabel(download),
+                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF06B6D4)),
                     ),
                   ],
                 ),
                 Text(
-                  '≈ ${(download / 8).toStringAsFixed(2)} MB/s transfer rate',
-                  style: const TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+                  'Ping: $ping ms (Jitter: $jitter ms) • ${(download / 8).toStringAsFixed(2)} MB/s',
+                  style: const TextStyle(fontSize: 12, color: Color(0xFF94A3B8)),
                 ),
 
                 const SizedBox(height: 24),

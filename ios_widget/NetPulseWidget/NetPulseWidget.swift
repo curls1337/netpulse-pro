@@ -224,7 +224,7 @@ struct NetPulseLiveActivity: Widget {
                             .font(.system(size: 10, weight: .black))
                             .foregroundColor(context.state.isSecure ? Color.green : Color.red)
                         Spacer()
-                        Text("📶 " + context.state.isp)
+                        Text("📶 " + context.state.isp + " • " + String(context.state.ping) + "ms")
                             .font(.system(size: 10, weight: .bold))
                             .foregroundColor(Color.cyan)
                     }
@@ -235,7 +235,7 @@ struct NetPulseLiveActivity: Widget {
                     Text("↓")
                         .font(.system(size: 9, weight: .bold))
                         .foregroundColor(Color.cyan)
-                    Text(String(format: "%.0fM", context.state.downloadSpeed))
+                    Text(context.state.downloadDisplay)
                         .font(.system(size: 11, weight: .black))
                         .foregroundColor(Color.cyan)
                 }
@@ -244,7 +244,7 @@ struct NetPulseLiveActivity: Widget {
                     Text("↑")
                         .font(.system(size: 9, weight: .bold))
                         .foregroundColor(Color.purple)
-                    Text(String(format: "%.0fM", context.state.uploadSpeed))
+                    Text(context.state.uploadDisplay)
                         .font(.system(size: 11, weight: .black))
                         .foregroundColor(Color.purple)
                 }

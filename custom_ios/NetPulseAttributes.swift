@@ -8,13 +8,31 @@ public struct NetPulseAttributes: ActivityAttributes {
         public var todayUsageGB: Double
         public var isSecure: Bool
         public var isp: String
+        public var ping: Int
+        public var unit: String
+        public var downloadDisplay: String
+        public var uploadDisplay: String
 
-        public init(downloadSpeed: Double, uploadSpeed: Double, todayUsageGB: Double, isSecure: Bool, isp: String) {
+        public init(
+            downloadSpeed: Double,
+            uploadSpeed: Double,
+            todayUsageGB: Double,
+            isSecure: Bool,
+            isp: String,
+            ping: Int = 14,
+            unit: String = "Auto",
+            downloadDisplay: String = "0K",
+            uploadDisplay: String = "0K"
+        ) {
             self.downloadSpeed = downloadSpeed
             self.uploadSpeed = uploadSpeed
             self.todayUsageGB = todayUsageGB
             self.isSecure = isSecure
             self.isp = isp
+            self.ping = ping
+            self.unit = unit
+            self.downloadDisplay = downloadDisplay
+            self.uploadDisplay = uploadDisplay
         }
     }
 
