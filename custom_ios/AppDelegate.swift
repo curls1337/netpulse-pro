@@ -377,7 +377,7 @@ class NetworkSpeedMonitor {
     private func startNativeLiveTimer() {
         liveTimer?.invalidate()
         // Native background loop updating Dynamic Island and app continuously
-        let timer = Timer(timeInterval: 1.5, repeats: true) { [weak self] _ in
+        let timer = Timer(timeInterval: 2.0, repeats: true) { [weak self] _ in
             guard let self = self else { return }
             let sample = NetworkSpeedMonitor.shared.sampleSpeed()
             let isSecure = (sample.uploadMbps < 40.0)
@@ -396,10 +396,13 @@ class NetworkSpeedMonitor {
                 uploadDisplay: upText
             )
 
-            if let activity = self.currentActivity as? Activity<NetPulseAttributes> {
+            // Re-acquire active activity if pointer was unlinked
+            let activeActivity = (self.currentActivity as? Activity<NetPulseAttributes>) ?? Activity<NetPulseAttributes>.activities.first
+            if let activity = activeActivity {
+                self.currentActivity = activity
                 Task {
                     if #available(iOS 16.2, *) {
-                        let content = ActivityContent(state: updatedContent, staleDate: nil)
+                        let content = ActivityContent(state: updatedContent, staleDate: Date().addingTimeInterval(3.0), relevanceScore: 100.0)
                         await activity.update(content)
                     } else {
                         await activity.update(using: updatedContent)
