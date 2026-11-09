@@ -107,6 +107,48 @@ class _MainShellState extends State<MainShell> {
     super.initState();
     _setupNativeSpeedListener();
     _checkExistingLiveActivity();
+    _fetchInitialNetworkStatus();
+  }
+
+  Future<void> _fetchInitialNetworkStatus() async {
+    try {
+      final res = await _liveActivityChannel.invokeMethod<Map<dynamic, dynamic>>('getNetworkStatus');
+      if (res != null && mounted) {
+        setState(() {
+          _downloadSpeed = (res['download'] as num?)?.toDouble() ?? _downloadSpeed;
+          _uploadSpeed = (res['upload'] as num?)?.toDouble() ?? _uploadSpeed;
+          _lastHourUsageMB = (res['lastHourMB'] as num?)?.toDouble() ?? _lastHourUsageMB;
+          final today = (res['todayGB'] as num?)?.toDouble() ?? 0.0;
+          if (today > 0) _todayUsageGB = double.parse(today.toStringAsFixed(2));
+          final isp = res['isp'] as String?;
+          if (isp != null && isp.isNotEmpty) {
+            _ispName = isp;
+            _networkType = isp.contains('Wi-Fi') ? 'Wi-Fi' : 'Seluler 5G/LTE';
+          }
+          final pingVal = (res['ping'] as num?)?.toInt() ?? 0;
+          if (pingVal > 0) _ping = pingVal;
+        });
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _reloadWidgetFromFlutter() async {
+    try {
+      final res = await _liveActivityChannel.invokeMethod<Map<dynamic, dynamic>>('reloadWidget');
+      if (res != null && mounted) {
+        setState(() {
+          _downloadSpeed = (res['download'] as num?)?.toDouble() ?? _downloadSpeed;
+          _uploadSpeed = (res['upload'] as num?)?.toDouble() ?? _uploadSpeed;
+          _lastHourUsageMB = (res['lastHourMB'] as num?)?.toDouble() ?? _lastHourUsageMB;
+          final today = (res['todayGB'] as num?)?.toDouble() ?? 0.0;
+          if (today > 0) _todayUsageGB = double.parse(today.toStringAsFixed(2));
+          final isp = res['isp'] as String?;
+          if (isp != null && isp.isNotEmpty) _ispName = isp;
+        });
+      }
+    } catch (e) {
+      debugPrint('Reload widget error: $e');
+    }
   }
 
   Future<void> _checkExistingLiveActivity() async {
@@ -132,6 +174,7 @@ class _MainShellState extends State<MainShell> {
           setState(() {
             _downloadSpeed = (args['download'] as num?)?.toDouble() ?? _downloadSpeed;
             _uploadSpeed = (args['upload'] as num?)?.toDouble() ?? _uploadSpeed;
+            _lastHourUsageMB = (args['lastHourMB'] as num?)?.toDouble() ?? _lastHourUsageMB;
             final today = (args['todayGB'] as num?)?.toDouble() ?? 0.0;
             final isp = (args['isp'] as String?) ?? '';
             final pingVal = (args['ping'] as num?)?.toInt() ?? 0;
@@ -254,6 +297,7 @@ class _MainShellState extends State<MainShell> {
         upload: _uploadSpeed,
         lastHourMB: _lastHourUsageMB,
         isp: _ispName,
+        onReloadWidget: _reloadWidgetFromFlutter,
       ),
       QuotaAlertTab(currentUsageGB: _monthUsageGB, quotaLimitGB: _monthlyQuotaGB),
       SettingsTab(
@@ -1025,6 +1069,7 @@ class WidgetsGalleryTab extends StatelessWidget {
   final double upload;
   final double lastHourMB;
   final String isp;
+  final Future<void> Function() onReloadWidget;
 
   const WidgetsGalleryTab({
     super.key,
@@ -1032,6 +1077,7 @@ class WidgetsGalleryTab extends StatelessWidget {
     required this.upload,
     required this.lastHourMB,
     required this.isp,
+    required this.onReloadWidget,
   });
 
   @override
@@ -1133,13 +1179,16 @@ class WidgetsGalleryTab extends StatelessWidget {
           SizedBox(
             width: double.infinity,
             child: ElevatedButton.icon(
-              onPressed: () {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('✓ Small Widget telah ditambahkan ke Home Screen!')),
-                );
+              onPressed: () async {
+                await onReloadWidget();
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('✓ Data disinkronkan ke Small Widget iOS! Pasang via (+) di Home Screen.')),
+                  );
+                }
               },
-              icon: const Icon(Icons.add_rounded, size: 16),
-              label: const Text('Tambahkan Small Widget ke Home Screen'),
+              icon: const Icon(Icons.sync_rounded, size: 16),
+              label: const Text('Sinkronkan & Refresh Small Widget'),
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFF06B6D4),
                 foregroundColor: const Color(0xFF090D16),
@@ -1229,13 +1278,16 @@ class WidgetsGalleryTab extends StatelessWidget {
           SizedBox(
             width: double.infinity,
             child: ElevatedButton.icon(
-              onPressed: () {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('✓ Medium Widget telah ditambahkan ke Home Screen!')),
-                );
+              onPressed: () async {
+                await onReloadWidget();
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('✓ Data disinkronkan ke Medium Widget iOS! Tap ↻ di widget untuk refresh cepat.')),
+                  );
+                }
               },
-              icon: const Icon(Icons.add_rounded, size: 16),
-              label: const Text('Tambahkan Medium Widget ke Home Screen'),
+              icon: const Icon(Icons.sync_rounded, size: 16),
+              label: const Text('Sinkronkan & Refresh Medium Widget'),
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFF06B6D4),
                 foregroundColor: const Color(0xFF090D16),
@@ -1296,9 +1348,11 @@ class _QuotaAlertTabState extends State<QuotaAlertTab> {
             onPressed: () {
               final val = double.tryParse(controller.text) ?? _dailyLimitMB;
               setState(() => _dailyLimitMB = val);
+              const MethodChannel('com.devcurl.netpulse/live_activity')
+                  .invokeMethod('setDailyLimit', {'limitMB': val});
               Navigator.pop(ctx);
               ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('Batas harian diubah ke: ${val.toInt()} MB (${(val / 1024).toStringAsFixed(2)} GB)')),
+                SnackBar(content: Text('Batas harian diubah ke: ${val.toInt()} MB (${(val / 1024).toStringAsFixed(2)} GB) & disinkronkan ke Widget!')),
               );
             },
             style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF06B6D4)),

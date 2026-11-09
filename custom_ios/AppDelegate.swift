@@ -1,6 +1,7 @@
 import UIKit
 import Flutter
 import ActivityKit
+import WidgetKit
 import Network
 import CoreTelephony
 import AVFoundation
@@ -155,6 +156,7 @@ class NetworkSpeedMonitor {
 
     private let todayBytesKey = "NetPulse_TodayBytes"
     private let lastDateKey = "NetPulse_LastDate"
+    private let hourlyBucketsKey = "NetPulse_HourlyBuckets"
 
     init() {
         startPathMonitor()
@@ -221,11 +223,11 @@ class NetworkSpeedMonitor {
         conn.start(queue: monitorQueue)
     }
 
-    func sampleSpeed() -> (downloadMbps: Double, uploadMbps: Double, todayGB: Double, isp: String, ping: Int) {
+    func sampleSpeed() -> (downloadMbps: Double, uploadMbps: Double, todayGB: Double, lastHourMB: Double, isp: String, ping: Int) {
         resetDailyCounterIfNeeded()
         var ifaddr: UnsafeMutablePointer<ifaddrs>?
         guard getifaddrs(&ifaddr) == 0, let firstAddr = ifaddr else {
-            return (0.0, 0.0, 0.0, currentNetwork, currentPingMs)
+            return (0.0, 0.0, 0.0, 0.0, currentNetwork, currentPingMs)
         }
         defer { freeifaddrs(ifaddr) }
 
@@ -293,15 +295,29 @@ class NetworkSpeedMonitor {
 
         let defaults = UserDefaults.standard
         var totalToday = defaults.object(forKey: todayBytesKey) as? UInt64 ?? 0
-        totalToday += (deltaInTotal + deltaOutTotal)
+        let addedBytes = deltaInTotal + deltaOutTotal
+        totalToday += addedBytes
         defaults.set(totalToday, forKey: todayBytesKey)
         let todayGB = Double(totalToday) / (1024.0 * 1024.0 * 1024.0)
+
+        let nowTs = now.timeIntervalSince1970
+        var buckets = (defaults.array(forKey: hourlyBucketsKey) as? [[String: Double]]) ?? []
+        buckets = buckets.filter { entry in
+            guard let t = entry["t"] else { return false }
+            return (nowTs - t) <= 3600.0 && (nowTs - t) >= 0.0
+        }
+        if addedBytes > 0 {
+            buckets.append(["t": nowTs, "b": Double(addedBytes)])
+        }
+        defaults.set(buckets, forKey: hourlyBucketsKey)
+        let hourBytes = buckets.reduce(0.0) { $0 + ($1["b"] ?? 0.0) }
+        let lastHourMB = hourBytes / (1024.0 * 1024.0)
 
         if arc4random_uniform(4) == 0 {
             measureRealPing()
         }
 
-        return (downMbps, upMbps, todayGB, currentNetwork, currentPingMs)
+        return (downMbps, upMbps, todayGB, lastHourMB, currentNetwork, currentPingMs)
     }
 }
 
@@ -314,6 +330,40 @@ class NetworkSpeedMonitor {
     private var liveTimer: Timer?
     private var liveChannel: FlutterMethodChannel?
     private var selectedUnit: String = "Auto"
+    private var lastWidgetReloadTime: Date = Date.distantPast
+
+    func syncMetricsToWidget(existingSample: (downloadMbps: Double, uploadMbps: Double, todayGB: Double, lastHourMB: Double, isp: String, ping: Int)? = nil, force: Bool = false) {
+        let sample = existingSample ?? NetworkSpeedMonitor.shared.sampleSpeed()
+        let isSecure = (sample.uploadMbps < 40.0)
+        let now = Date()
+        let appGroup = "group.com.devcurl.netpulse"
+
+        var targets: [UserDefaults] = [UserDefaults.standard]
+        if let groupDefaults = UserDefaults(suiteName: appGroup) {
+            targets.append(groupDefaults)
+        }
+
+        for defaults in targets {
+            defaults.set(sample.downloadMbps, forKey: "np_download_mbps")
+            defaults.set(sample.uploadMbps, forKey: "np_upload_mbps")
+            defaults.set(sample.lastHourMB, forKey: "np_lasthour_mb")
+            defaults.set(sample.todayGB, forKey: "np_today_gb")
+            defaults.set(sample.isp, forKey: "np_isp")
+            defaults.set(isSecure, forKey: "np_is_secure")
+            defaults.set(sample.ping, forKey: "np_ping")
+            defaults.set(selectedUnit, forKey: "np_unit")
+            defaults.set(now.timeIntervalSince1970, forKey: "np_updated_at")
+        }
+
+        // Reload WidgetKit timelines throttled to max once every 10s unless forced
+        if force || now.timeIntervalSince(lastWidgetReloadTime) >= 10.0 {
+            lastWidgetReloadTime = now
+            if #available(iOS 14.0, *) {
+                WidgetCenter.shared.reloadTimelines(ofKind: "NetPulseWidget")
+                WidgetCenter.shared.reloadAllTimelines()
+            }
+        }
+    }
 
     override func application(
         _ application: UIApplication,
@@ -346,15 +396,42 @@ class NetworkSpeedMonitor {
                 case "setSpeedUnit":
                     let args = call.arguments as? [String: Any] ?? [:]
                     self.selectedUnit = args["unit"] as? String ?? "Auto"
+                    self.syncMetricsToWidget(force: true)
                     result(true)
+
+                case "setDailyLimit":
+                    let args = call.arguments as? [String: Any] ?? [:]
+                    let limitMB = args["limitMB"] as? Double ?? 1024.0
+                    UserDefaults.standard.set(limitMB, forKey: "np_daily_limit_mb")
+                    if let group = UserDefaults(suiteName: "group.com.devcurl.netpulse") {
+                        group.set(limitMB, forKey: "np_daily_limit_mb")
+                    }
+                    self.syncMetricsToWidget(force: true)
+                    result(true)
+
+                case "reloadWidget":
+                    let sample = NetworkSpeedMonitor.shared.sampleSpeed()
+                    self.syncMetricsToWidget(force: true)
+                    result([
+                        "success": true,
+                        "download": sample.downloadMbps,
+                        "upload": sample.uploadMbps,
+                        "lastHourMB": sample.lastHourMB,
+                        "todayGB": sample.todayGB,
+                        "isp": sample.isp,
+                        "ping": sample.ping
+                    ])
 
                 case "getNetworkStatus":
                     let sample = NetworkSpeedMonitor.shared.sampleSpeed()
+                    self.syncMetricsToWidget(force: true)
                     result([
                         "download": sample.downloadMbps,
                         "upload": sample.uploadMbps,
+                        "lastHourMB": sample.lastHourMB,
                         "todayGB": sample.todayGB,
-                        "isp": sample.isp
+                        "isp": sample.isp,
+                        "ping": sample.ping
                     ])
 
                 default:
@@ -427,6 +504,11 @@ class NetworkSpeedMonitor {
                 }
             }
         }
+    }
+
+    override func applicationDidEnterBackground(_ application: UIApplication) {
+        super.applicationDidEnterBackground(application)
+        syncMetricsToWidget(force: true)
     }
 
     @available(iOS 16.1, *)
@@ -523,6 +605,7 @@ class NetworkSpeedMonitor {
             guard let self = self else { return }
             let sample = NetworkSpeedMonitor.shared.sampleSpeed()
             let isSecure = (sample.uploadMbps < 40.0)
+            self.syncMetricsToWidget(existingSample: sample, force: false)
             let downText = self.formatSpeedText(sample.downloadMbps, unit: self.selectedUnit)
             let upText = self.formatSpeedText(sample.uploadMbps, unit: self.selectedUnit)
 
@@ -575,6 +658,7 @@ class NetworkSpeedMonitor {
                     "download": sample.downloadMbps,
                     "upload": sample.uploadMbps,
                     "todayGB": sample.todayGB,
+                    "lastHourMB": sample.lastHourMB,
                     "isp": sample.isp,
                     "isSecure": isSecure,
                     "ping": sample.ping,

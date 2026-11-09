@@ -14,6 +14,9 @@ targets:
       - sdk: WidgetKit.framework
       - sdk: SwiftUI.framework
       - sdk: ActivityKit.framework
+      - sdk: AppIntents.framework
+      - sdk: Network.framework
+      - sdk: CoreTelephony.framework
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.devcurl.netpulse.netpulsePro.widget
