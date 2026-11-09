@@ -245,7 +245,7 @@ class NetworkSpeedMonitor {
             }
 
             DispatchQueue.main.async {
-                self.liveChannel?.invokeMethod("onSpeedUpdate", [
+                self.liveChannel?.invokeMethod("onSpeedUpdate", arguments: [
                     "download": sample.downloadMbps,
                     "upload": sample.uploadMbps,
                     "todayGB": sample.todayGB,
