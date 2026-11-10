@@ -71,20 +71,40 @@ class _MainShellState extends State<MainShell> {
   int _currentIndex = 0;
 
   // Real-time metrics
-  double _downloadSpeed = 84.5; // Mbps
-  double _uploadSpeed = 36.2; // Mbps
+  double _downloadSpeed = 0.0; // Mbps
+  double _uploadSpeed = 0.0; // Mbps
   int _ping = 14; // ms
   int _jitter = 2; // ms
-  String _networkType = 'Wi-Fi 6 (5GHz)';
-  String _ispName = 'Biznet Fiber Ultra';
-  String _ipAddress = '182.253.112.94';
+  String _networkType = 'Wi-Fi';
+  String _ispName = 'Mendeteksi...';
+  String _ipAddress = 'Local Interface';
   bool _isTesting = false;
 
   // Usage Stats
-  double _lastHourUsageMB = 142.8;
-  double _todayUsageGB = 4.2;
-  double _monthUsageGB = 84.6;
+  double _lastHourUsageMB = 0.0;
+  double _todayUsageGB = 0.0;
+  double _monthUsageGB = 0.0;
   double _monthlyQuotaGB = 150.0;
+
+  // Alert & Settings Preferences (Persisted via Native UserDefaults)
+  bool _dailyLimitActive = true;
+  double _dailyLimitMB = 1024.0;
+  bool _hourlyLimitActive = true;
+  double _hourlyLimitMB = 500.0;
+  bool _quota80Active = true;
+  bool _quota95Active = true;
+  bool _switchNetworkActive = false;
+  int _resetDay = 1;
+
+  // Dynamic Analytics Data from Native Hardware
+  List<double> _hourlyDataMB = List<double>.filled(24, 0.0);
+  List<String> _hourlyLabels = const [];
+  List<double> _weeklyDataGB = List<double>.filled(7, 0.0);
+  List<String> _weeklyLabels = const ['Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab', 'Min'];
+  List<double> _monthlyDataGB = List<double>.filled(6, 0.0);
+  List<String> _monthlyLabels = const ['Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov'];
+  List<double> _yearlyDataGB = List<double>.filled(4, 0.0);
+  List<String> _yearlyLabels = const ['2023', '2024', '2025', '2026'];
 
   // Dynamic Island (Live Activity)
   static const _liveActivityChannel = MethodChannel('com.devcurl.netpulse/live_activity');
@@ -92,6 +112,7 @@ class _MainShellState extends State<MainShell> {
   String _speedUnit = 'Auto'; // 'Auto', 'Mbps', 'KB/s', 'MB/s'
 
   Timer? _metricsTimer;
+  String _lastKnownNetType = '';
 
   Future<void> _setSpeedUnit(String unit) async {
     setState(() => _speedUnit = unit);
@@ -108,6 +129,125 @@ class _MainShellState extends State<MainShell> {
     _setupNativeSpeedListener();
     _checkExistingLiveActivity();
     _fetchInitialNetworkStatus();
+    _loadAlertSettings();
+    _loadAnalyticsData();
+  }
+
+  Future<void> _loadAlertSettings() async {
+    try {
+      final res = await _liveActivityChannel.invokeMethod<Map<dynamic, dynamic>>('getAlertSettings');
+      if (res != null && mounted) {
+        setState(() {
+          _dailyLimitActive = res['dailyLimitActive'] as bool? ?? true;
+          _dailyLimitMB = (res['dailyLimitMB'] as num?)?.toDouble() ?? 1024.0;
+          _hourlyLimitActive = res['hourlyLimitActive'] as bool? ?? true;
+          _hourlyLimitMB = (res['hourlyLimitMB'] as num?)?.toDouble() ?? 500.0;
+          _quota80Active = res['quota80Active'] as bool? ?? true;
+          _quota95Active = res['quota95Active'] as bool? ?? true;
+          _switchNetworkActive = res['switchNetworkActive'] as bool? ?? false;
+          _monthlyQuotaGB = (res['monthlyQuotaGB'] as num?)?.toDouble() ?? 150.0;
+          _resetDay = (res['resetDay'] as num?)?.toInt() ?? 1;
+          _speedUnit = res['speedUnit'] as String? ?? _speedUnit;
+        });
+      }
+    } catch (e) {
+      debugPrint('Load alert settings error: $e');
+    }
+  }
+
+  Future<void> _saveAlertSettings(Map<String, dynamic> updates) async {
+    try {
+      await _liveActivityChannel.invokeMethod('saveAlertSettings', updates);
+    } catch (e) {
+      debugPrint('Save alert settings error: $e');
+    }
+  }
+
+  Future<void> _loadAnalyticsData() async {
+    try {
+      final res = await _liveActivityChannel.invokeMethod<Map<dynamic, dynamic>>('getAnalyticsData');
+      if (res != null && mounted) {
+        setState(() {
+          final h = (res['hourly'] as List<dynamic>?)?.map((e) => (e as num).toDouble()).toList();
+          final hl = (res['hourlyLabels'] as List<dynamic>?)?.map((e) => e.toString()).toList();
+          final w = (res['weekly'] as List<dynamic>?)?.map((e) => (e as num).toDouble()).toList();
+          final wl = (res['weeklyLabels'] as List<dynamic>?)?.map((e) => e.toString()).toList();
+          final m = (res['monthly'] as List<dynamic>?)?.map((e) => (e as num).toDouble()).toList();
+          final ml = (res['monthlyLabels'] as List<dynamic>?)?.map((e) => e.toString()).toList();
+          final y = (res['yearly'] as List<dynamic>?)?.map((e) => (e as num).toDouble()).toList();
+          final yl = (res['yearlyLabels'] as List<dynamic>?)?.map((e) => e.toString()).toList();
+
+          if (h != null && h.isNotEmpty) _hourlyDataMB = h;
+          if (hl != null && hl.isNotEmpty) _hourlyLabels = hl;
+          if (w != null && w.isNotEmpty) _weeklyDataGB = w;
+          if (wl != null && wl.isNotEmpty) _weeklyLabels = wl;
+          if (m != null && m.isNotEmpty) _monthlyDataGB = m;
+          if (ml != null && ml.isNotEmpty) _monthlyLabels = ml;
+          if (y != null && y.isNotEmpty) _yearlyDataGB = y;
+          if (yl != null && yl.isNotEmpty) _yearlyLabels = yl;
+
+          final t = (res['todayGB'] as num?)?.toDouble();
+          final mo = (res['monthGB'] as num?)?.toDouble();
+          if (t != null) _todayUsageGB = t;
+          if (mo != null) _monthUsageGB = mo;
+          final isp = res['isp'] as String?;
+          if (isp != null && isp.isNotEmpty) {
+            _ispName = isp;
+            _networkType = isp.contains('Wi-Fi') ? 'Wi-Fi' : 'Seluler 5G/LTE';
+          }
+        });
+      }
+    } catch (e) {
+      debugPrint('Load analytics error: $e');
+    }
+  }
+
+  Future<void> _exportDataLog() async {
+    String csvText = 'Slot_Waktu,Data_MB,Jaringan,Total_Hari_GB,Total_Bulan_GB\n';
+    try {
+      final res = await _liveActivityChannel.invokeMethod<String>('exportDataLog');
+      if (res != null && res.isNotEmpty) {
+        csvText = res;
+      }
+    } catch (_) {
+      csvText += '${DateTime.now().hour}:00,${_lastHourUsageMB.toStringAsFixed(2)},$_ispName,${_todayUsageGB.toStringAsFixed(3)},${_monthUsageGB.toStringAsFixed(3)}\n';
+    }
+    if (!mounted) return;
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF111827),
+        title: const Text('Export Data Log (CSV)', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+        content: SizedBox(
+          width: double.maxFinite,
+          height: 260,
+          child: SingleChildScrollView(
+            child: SelectableText(
+              csvText,
+              style: const TextStyle(fontFamily: 'monospace', fontSize: 10, color: Color(0xFF94A3B8)),
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Tutup', style: TextStyle(color: Colors.grey)),
+          ),
+          ElevatedButton.icon(
+            onPressed: () {
+              Clipboard.setData(ClipboardData(text: csvText));
+              Navigator.pop(ctx);
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('✓ Log CSV berhasil disalin ke Clipboard!')),
+              );
+            },
+            icon: const Icon(Icons.copy_rounded, size: 16),
+            label: const Text('Salin CSV'),
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF06B6D4), foregroundColor: const Color(0xFF090D16)),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _fetchInitialNetworkStatus() async {
@@ -119,11 +259,13 @@ class _MainShellState extends State<MainShell> {
           _uploadSpeed = (res['upload'] as num?)?.toDouble() ?? _uploadSpeed;
           _lastHourUsageMB = (res['lastHourMB'] as num?)?.toDouble() ?? _lastHourUsageMB;
           final today = (res['todayGB'] as num?)?.toDouble() ?? 0.0;
-          if (today > 0) _todayUsageGB = double.parse(today.toStringAsFixed(2));
+          _todayUsageGB = today;
+          if (_monthUsageGB < today) _monthUsageGB = today;
           final isp = res['isp'] as String?;
           if (isp != null && isp.isNotEmpty) {
             _ispName = isp;
             _networkType = isp.contains('Wi-Fi') ? 'Wi-Fi' : 'Seluler 5G/LTE';
+            _lastKnownNetType = _networkType;
           }
           final pingVal = (res['ping'] as num?)?.toInt() ?? 0;
           if (pingVal > 0) _ping = pingVal;
@@ -179,12 +321,26 @@ class _MainShellState extends State<MainShell> {
             final isp = (args['isp'] as String?) ?? '';
             final pingVal = (args['ping'] as num?)?.toInt() ?? 0;
 
-            if (today > 0) {
-              _todayUsageGB = double.parse(today.toStringAsFixed(2));
+            if (today >= 0) {
+              _todayUsageGB = today;
+              if (_monthUsageGB < today) {
+                _monthUsageGB = today;
+              }
             }
             if (isp.isNotEmpty) {
               _ispName = isp;
-              _networkType = isp.contains('Wi-Fi') ? 'Wi-Fi' : 'Seluler 5G/LTE';
+              final newNet = isp.contains('Wi-Fi') ? 'Wi-Fi' : 'Seluler 5G/LTE';
+              if (_switchNetworkActive && _lastKnownNetType.isNotEmpty && _lastKnownNetType != newNet) {
+                HapticFeedback.heavyImpact();
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    backgroundColor: const Color(0xFFF59E0B),
+                    content: Text('⚠️ Jaringan berpindah: $_lastKnownNetType → $newNet ($isp)', style: const TextStyle(color: Color(0xFF090D16), fontWeight: FontWeight.bold)),
+                  ),
+                );
+              }
+              _networkType = newNet;
+              _lastKnownNetType = newNet;
             }
             if (pingVal > 0) {
               _ping = pingVal;
@@ -291,20 +447,95 @@ class _MainShellState extends State<MainShell> {
         speedUnit: _speedUnit,
         onSelectSpeedUnit: _setSpeedUnit,
       ),
-      AnalyticsTab(todayGB: _todayUsageGB, monthGB: _monthUsageGB, quotaGB: _monthlyQuotaGB),
+      AnalyticsTab(
+        todayGB: _todayUsageGB,
+        monthGB: _monthUsageGB,
+        quotaGB: _monthlyQuotaGB,
+        isp: _ispName,
+        networkType: _networkType,
+        hourlyDataMB: _hourlyDataMB,
+        hourlyLabels: _hourlyLabels,
+        weeklyDataGB: _weeklyDataGB,
+        weeklyLabels: _weeklyLabels,
+        monthlyDataGB: _monthlyDataGB,
+        monthlyLabels: _monthlyLabels,
+        yearlyDataGB: _yearlyDataGB,
+        yearlyLabels: _yearlyLabels,
+        onRefresh: _loadAnalyticsData,
+      ),
       WidgetsGalleryTab(
         download: _downloadSpeed,
         upload: _uploadSpeed,
         lastHourMB: _lastHourUsageMB,
+        todayGB: _todayUsageGB,
+        monthGB: _monthUsageGB,
         isp: _ispName,
         onReloadWidget: _reloadWidgetFromFlutter,
       ),
-      QuotaAlertTab(currentUsageGB: _monthUsageGB, quotaLimitGB: _monthlyQuotaGB),
+      QuotaAlertTab(
+        currentUsageGB: _monthUsageGB,
+        quotaLimitGB: _monthlyQuotaGB,
+        dailyUsageMB: _todayUsageGB * 1024.0,
+        hourlyUsageMB: _lastHourUsageMB,
+        dailyLimitMB: _dailyLimitMB,
+        hourlyLimitMB: _hourlyLimitMB,
+        dailyLimitActive: _dailyLimitActive,
+        hourlyLimitActive: _hourlyLimitActive,
+        quota80Active: _quota80Active,
+        quota95Active: _quota95Active,
+        switchNetworkActive: _switchNetworkActive,
+        onDailyLimitChanged: (val) {
+          setState(() => _dailyLimitMB = val);
+          _saveAlertSettings({'dailyLimitMB': val});
+        },
+        onDailyLimitToggled: (val) {
+          setState(() => _dailyLimitActive = val);
+          _saveAlertSettings({'dailyLimitActive': val});
+        },
+        onHourlyLimitChanged: (val) {
+          setState(() => _hourlyLimitMB = val);
+          _saveAlertSettings({'hourlyLimitMB': val});
+        },
+        onHourlyLimitToggled: (val) {
+          setState(() => _hourlyLimitActive = val);
+          _saveAlertSettings({'hourlyLimitActive': val});
+        },
+        onQuota80Toggled: (val) {
+          setState(() => _quota80Active = val);
+          _saveAlertSettings({'quota80Active': val});
+        },
+        onQuota95Toggled: (val) {
+          setState(() => _quota95Active = val);
+          _saveAlertSettings({'quota95Active': val});
+        },
+        onSwitchNetworkToggled: (val) {
+          setState(() => _switchNetworkActive = val);
+          _saveAlertSettings({'switchNetworkActive': val});
+        },
+        onQuotaLimitChanged: (val) {
+          setState(() => _monthlyQuotaGB = val);
+          _saveAlertSettings({'monthlyQuotaGB': val});
+        },
+      ),
       SettingsTab(
         isDark: widget.isDark,
         onToggleTheme: widget.onToggleTheme,
         networkType: _networkType,
+        ispName: _ispName,
+        speedUnit: _speedUnit,
+        monthlyQuotaGB: _monthlyQuotaGB,
+        resetDay: _resetDay,
         onNetworkChanged: (val) => setState(() => _networkType = val),
+        onSelectSpeedUnit: _setSpeedUnit,
+        onMonthlyQuotaChanged: (val) {
+          setState(() => _monthlyQuotaGB = val);
+          _saveAlertSettings({'monthlyQuotaGB': val});
+        },
+        onResetDayChanged: (val) {
+          setState(() => _resetDay = val);
+          _saveAlertSettings({'resetDay': val});
+        },
+        onExportLog: _exportDataLog,
       ),
     ];
 
@@ -324,7 +555,11 @@ class _MainShellState extends State<MainShell> {
         ),
         child: BottomNavigationBar(
           currentIndex: _currentIndex,
-          onTap: (index) => setState(() => _currentIndex = index),
+          onTap: (index) {
+            setState(() => _currentIndex = index);
+            if (index == 1) _loadAnalyticsData();
+            if (index == 3) _loadAlertSettings();
+          },
           backgroundColor: Colors.transparent,
           elevation: 0,
           type: BottomNavigationBarType.fixed,
@@ -809,8 +1044,35 @@ class AnalyticsTab extends StatefulWidget {
   final double todayGB;
   final double monthGB;
   final double quotaGB;
+  final String isp;
+  final String networkType;
+  final List<double> hourlyDataMB;
+  final List<String> hourlyLabels;
+  final List<double> weeklyDataGB;
+  final List<String> weeklyLabels;
+  final List<double> monthlyDataGB;
+  final List<String> monthlyLabels;
+  final List<double> yearlyDataGB;
+  final List<String> yearlyLabels;
+  final Future<void> Function() onRefresh;
 
-  const AnalyticsTab({super.key, required this.todayGB, required this.monthGB, required this.quotaGB});
+  const AnalyticsTab({
+    super.key,
+    required this.todayGB,
+    required this.monthGB,
+    required this.quotaGB,
+    required this.isp,
+    required this.networkType,
+    required this.hourlyDataMB,
+    required this.hourlyLabels,
+    required this.weeklyDataGB,
+    required this.weeklyLabels,
+    required this.monthlyDataGB,
+    required this.monthlyLabels,
+    required this.yearlyDataGB,
+    required this.yearlyLabels,
+    required this.onRefresh,
+  });
 
   @override
   State<AnalyticsTab> createState() => _AnalyticsTabState();
@@ -818,37 +1080,108 @@ class AnalyticsTab extends StatefulWidget {
 
 class _AnalyticsTabState extends State<AnalyticsTab> {
   int _selectedPeriod = 0; // 0: 1 Jam, 1: Mingguan, 2: Bulanan, 3: Tahunan
-  String _networkFilter = 'Semua';
 
-  final List<double> _hourlyDataMB = [
-    12.4, 8.1, 4.2, 2.5, 3.0, 15.6, 45.2, 98.4, 142.8, 120.5, 95.0, 88.2,
-    110.4, 135.2, 102.0, 94.5, 115.0, 158.4, 180.2, 210.5, 195.0, 145.2, 90.0, 42.0
-  ];
+  List<String> _defaultHourlyLabels() {
+    final now = DateTime.now();
+    return List.generate(8, (i) {
+      final h = (now.hour - 7 + i + 24) % 24;
+      return '${h.toString().padLeft(2, '0')}:00';
+    });
+  }
 
-  final List<double> _weeklyDataGB = [3.8, 4.2, 5.1, 4.0, 6.2, 8.4, 7.1];
-  final List<String> _weeklyLabels = ['Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab', 'Min'];
+  List<double> _currentValues() {
+    if (_selectedPeriod == 0) {
+      return widget.hourlyDataMB.length >= 8
+          ? widget.hourlyDataMB.sublist(widget.hourlyDataMB.length - 8)
+          : widget.hourlyDataMB;
+    } else if (_selectedPeriod == 1) {
+      return widget.weeklyDataGB;
+    } else if (_selectedPeriod == 2) {
+      return widget.monthlyDataGB;
+    } else {
+      return widget.yearlyDataGB;
+    }
+  }
 
-  final List<double> _monthlyDataGB = [82.4, 91.0, 78.5, 94.2, 88.0, 84.6];
-  final List<String> _monthlyLabels = ['Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov'];
-
-  final List<double> _yearlyDataGB = [850, 920, 1040, 1180];
-  final List<String> _yearlyLabels = ['2023', '2024', '2025', '2026'];
+  List<String> _currentLabels() {
+    if (_selectedPeriod == 0) {
+      return widget.hourlyLabels.length >= 8
+          ? widget.hourlyLabels.sublist(widget.hourlyLabels.length - 8)
+          : _defaultHourlyLabels();
+    } else if (_selectedPeriod == 1) {
+      return widget.weeklyLabels;
+    } else if (_selectedPeriod == 2) {
+      return widget.monthlyLabels;
+    } else {
+      return widget.yearlyLabels;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
+    final values = _currentValues();
+    final labels = _currentLabels();
+    final peakVal = values.isEmpty ? 0.0 : values.reduce(max);
+    final peakIdx = values.isEmpty ? 0 : values.indexOf(peakVal);
+    final peakLabel = (peakIdx >= 0 && peakIdx < labels.length) ? labels[peakIdx] : '-';
+    final totalPeriodVal = values.fold<double>(0.0, (a, b) => a + b);
+
+    // Dynamic session breakdown sorted by highest recent hours
+    final recentHours = widget.hourlyDataMB.length >= 8
+        ? widget.hourlyDataMB.sublist(widget.hourlyDataMB.length - 8)
+        : widget.hourlyDataMB;
+    final recentLabels = widget.hourlyLabels.length >= 8
+        ? widget.hourlyLabels.sublist(widget.hourlyLabels.length - 8)
+        : _defaultHourlyLabels();
+
+    final sessionItems = <Map<String, dynamic>>[];
+    for (int i = recentHours.length - 1; i >= 0; i--) {
+      final mb = recentHours[i];
+      final lbl = i < recentLabels.length ? recentLabels[i] : '--:00';
+      sessionItems.add({
+        'label': lbl,
+        'mb': mb,
+        'isPeak': mb > 0 && mb >= (recentHours.reduce(max)),
+      });
+    }
+    sessionItems.sort((a, b) => (b['mb'] as double).compareTo(a['mb'] as double));
+    final topSessions = sessionItems.take(4).toList();
+
     return SingleChildScrollView(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'Data Usage Analytics',
-            style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900, letterSpacing: -0.5),
-          ),
-          const SizedBox(height: 4),
-          const Text(
-            'Rekapitulasi pemakaian bandwidth internet Wi-Fi & Seluler',
-            style: TextStyle(fontSize: 12, color: Color(0xFF94A3B8)),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Data Usage Analytics',
+                    style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900, letterSpacing: -0.5),
+                  ),
+                  SizedBox(height: 4),
+                  Text(
+                    'Rekapitulasi hardware bandwidth Wi-Fi & Seluler',
+                    style: TextStyle(fontSize: 12, color: Color(0xFF94A3B8)),
+                  ),
+                ],
+              ),
+              IconButton(
+                onPressed: () async {
+                  await widget.onRefresh();
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('✓ Data analytics diperbarui dari sensor jaringan')),
+                    );
+                  }
+                },
+                icon: const Icon(Icons.refresh_rounded, color: Color(0xFF06B6D4)),
+                tooltip: 'Refresh Data',
+              ),
+            ],
           ),
 
           const SizedBox(height: 20),
@@ -890,7 +1223,7 @@ class _AnalyticsTabState extends State<AnalyticsTab> {
                   children: [
                     Text(
                       _selectedPeriod == 0
-                          ? 'Grafik 24 Jam Terakhir (MB)'
+                          ? 'Grafik 8 Jam Terakhir (MB)'
                           : _selectedPeriod == 1
                               ? 'Grafik 7 Hari Terakhir (GB)'
                               : _selectedPeriod == 2
@@ -905,17 +1238,18 @@ class _AnalyticsTabState extends State<AnalyticsTab> {
                         borderRadius: BorderRadius.circular(12),
                       ),
                       child: Text(
-                        _selectedPeriod == 0 ? 'Puncak: 210.5 MB' : 'Total: ${widget.monthGB} GB',
+                        _selectedPeriod == 0
+                            ? 'Puncak ($peakLabel): ${peakVal.toStringAsFixed(1)} MB'
+                            : 'Total: ${totalPeriodVal.toStringAsFixed(2)} GB',
                         style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF06B6D4)),
                       ),
                     ),
                   ],
                 ),
                 const SizedBox(height: 24),
-                // Simple Responsive Bar Chart Visual
                 SizedBox(
                   height: 140,
-                  child: _buildBarChart(),
+                  child: _buildBarChart(values, labels),
                 ),
               ],
             ),
@@ -923,13 +1257,32 @@ class _AnalyticsTabState extends State<AnalyticsTab> {
 
           const SizedBox(height: 20),
 
-          // Breakdown List
-          const Text('Rincian Pemakaian Sesi', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+          // Summary & Breakdown List
+          const Text('Rincian Pemakaian Hardware Live', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
           const SizedBox(height: 12),
-          _usageRow('Jam 19:00 - 20:00 (Puncak)', '210.5 MB', 'Wi-Fi 5GHz • Streaming 4K', true),
-          _usageRow('Jam 18:00 - 19:00', '180.2 MB', 'Wi-Fi 5GHz • Online Meeting', false),
-          _usageRow('Jam 17:00 - 18:00', '158.4 MB', 'Seluler 5G • Social Media', false),
-          _usageRow('Jam 16:00 - 17:00', '115.0 MB', 'Wi-Fi 5GHz • Browsing', false),
+          _usageRow(
+            'Total Hari Ini (${widget.networkType})',
+            '${(widget.todayGB * 1024).toStringAsFixed(1)} MB',
+            'ISP: ${widget.isp} • ${widget.todayGB.toStringAsFixed(3)} GB',
+            true,
+          ),
+          _usageRow(
+            'Akumulasi Siklus Bulan Ini',
+            '${widget.monthGB.toStringAsFixed(2)} GB',
+            'Kuota: ${widget.quotaGB.toInt()} GB (${((widget.monthGB / (widget.quotaGB > 0 ? widget.quotaGB : 1)) * 100).toStringAsFixed(1)}%)',
+            false,
+          ),
+          ...topSessions.take(2).map((s) {
+            final mb = s['mb'] as double;
+            final lbl = s['label'] as String;
+            final isPeak = s['isPeak'] as bool;
+            return _usageRow(
+              isPeak ? 'Jam $lbl (Puncak Terakhir)' : 'Sesi Jam $lbl',
+              '${mb.toStringAsFixed(1)} MB',
+              '${widget.networkType} • ${widget.isp}',
+              isPeak,
+            );
+          }),
         ],
       ),
     );
@@ -960,36 +1313,27 @@ class _AnalyticsTabState extends State<AnalyticsTab> {
     );
   }
 
-  Widget _buildBarChart() {
-    List<double> values;
-    List<String> labels;
-
-    if (_selectedPeriod == 0) {
-      values = _hourlyDataMB.sublist(16, 24); // Show last 8 hours
-      labels = ['16:00', '17:00', '18:00', '19:00', '20:00', '21:00', '22:00', '23:00'];
-    } else if (_selectedPeriod == 1) {
-      values = _weeklyDataGB;
-      labels = _weeklyLabels;
-    } else if (_selectedPeriod == 2) {
-      values = _monthlyDataGB;
-      labels = _monthlyLabels;
-    } else {
-      values = _yearlyDataGB;
-      labels = _yearlyLabels;
+  Widget _buildBarChart(List<double> values, List<String> labels) {
+    if (values.isEmpty) {
+      return const Center(child: Text('Mengumpulkan data...', style: TextStyle(color: Color(0xFF64748B))));
     }
-
-    final maxVal = values.reduce(max);
+    final maxVal = values.fold<double>(0.0, max);
+    final safeMax = maxVal > 0 ? maxVal : 1.0;
 
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceEvenly,
       crossAxisAlignment: CrossAxisAlignment.end,
       children: List.generate(values.length, (i) {
-        final heightFactor = values[i] / maxVal;
+        final val = values[i];
+        final heightFactor = maxVal > 0 ? (val / safeMax).clamp(0.06, 1.0) : 0.06;
+        final label = i < labels.length ? labels[i] : '';
         return Column(
           mainAxisAlignment: MainAxisAlignment.end,
           children: [
             Text(
-              _selectedPeriod == 0 ? '${values[i].toInt()}' : values[i].toStringAsFixed(1),
+              _selectedPeriod == 0
+                  ? (val >= 10 ? val.toStringAsFixed(0) : val.toStringAsFixed(1))
+                  : val.toStringAsFixed(2),
               style: const TextStyle(fontSize: 9, color: Color(0xFF64748B)),
             ),
             const SizedBox(height: 6),
@@ -997,8 +1341,10 @@ class _AnalyticsTabState extends State<AnalyticsTab> {
               width: 18,
               height: 90 * heightFactor,
               decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                  colors: [Color(0xFF06B6D4), Color(0xFF6366F1)],
+                gradient: LinearGradient(
+                  colors: val > 0
+                      ? [const Color(0xFF06B6D4), const Color(0xFF6366F1)]
+                      : [const Color(0xFF1E293B), const Color(0xFF334155)],
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
                 ),
@@ -1007,7 +1353,7 @@ class _AnalyticsTabState extends State<AnalyticsTab> {
             ),
             const SizedBox(height: 8),
             Text(
-              labels[i],
+              label,
               style: const TextStyle(fontSize: 10, color: Color(0xFF94A3B8)),
             ),
           ],
@@ -1068,6 +1414,8 @@ class WidgetsGalleryTab extends StatelessWidget {
   final double download;
   final double upload;
   final double lastHourMB;
+  final double todayGB;
+  final double monthGB;
   final String isp;
   final Future<void> Function() onReloadWidget;
 
@@ -1076,6 +1424,8 @@ class WidgetsGalleryTab extends StatelessWidget {
     required this.download,
     required this.upload,
     required this.lastHourMB,
+    required this.todayGB,
+    required this.monthGB,
     required this.isp,
     required this.onReloadWidget,
   });
@@ -1266,7 +1616,7 @@ class WidgetsGalleryTab extends StatelessWidget {
                     children: [
                       const Text('Pemakaian 1 Jam', style: TextStyle(fontSize: 10, color: Color(0xFF94A3B8))),
                       Text('${lastHourMB.toStringAsFixed(1)} MB', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFFF59E0B))),
-                      const Text('Hari ini: 4.2 GB\\nBulan ini: 84.6 GB', style: TextStyle(fontSize: 9, color: Color(0xFF64748B), height: 1.3)),
+                      Text('Hari ini: ${todayGB.toStringAsFixed(2)} GB\nBulan ini: ${monthGB.toStringAsFixed(1)} GB', style: const TextStyle(fontSize: 9, color: Color(0xFF64748B), height: 1.3)),
                     ],
                   ),
                 ),
@@ -1307,28 +1657,61 @@ class WidgetsGalleryTab extends StatelessWidget {
 class QuotaAlertTab extends StatefulWidget {
   final double currentUsageGB;
   final double quotaLimitGB;
+  final double dailyUsageMB;
+  final double hourlyUsageMB;
+  final double dailyLimitMB;
+  final double hourlyLimitMB;
+  final bool dailyLimitActive;
+  final bool hourlyLimitActive;
+  final bool quota80Active;
+  final bool quota95Active;
+  final bool switchNetworkActive;
+  final ValueChanged<double> onDailyLimitChanged;
+  final ValueChanged<bool> onDailyLimitToggled;
+  final ValueChanged<double> onHourlyLimitChanged;
+  final ValueChanged<bool> onHourlyLimitToggled;
+  final ValueChanged<bool> onQuota80Toggled;
+  final ValueChanged<bool> onQuota95Toggled;
+  final ValueChanged<bool> onSwitchNetworkToggled;
+  final ValueChanged<double> onQuotaLimitChanged;
 
-  const QuotaAlertTab({super.key, required this.currentUsageGB, required this.quotaLimitGB});
+  const QuotaAlertTab({
+    super.key,
+    required this.currentUsageGB,
+    required this.quotaLimitGB,
+    required this.dailyUsageMB,
+    required this.hourlyUsageMB,
+    required this.dailyLimitMB,
+    required this.hourlyLimitMB,
+    required this.dailyLimitActive,
+    required this.hourlyLimitActive,
+    required this.quota80Active,
+    required this.quota95Active,
+    required this.switchNetworkActive,
+    required this.onDailyLimitChanged,
+    required this.onDailyLimitToggled,
+    required this.onHourlyLimitChanged,
+    required this.onHourlyLimitToggled,
+    required this.onQuota80Toggled,
+    required this.onQuota95Toggled,
+    required this.onSwitchNetworkToggled,
+    required this.onQuotaLimitChanged,
+  });
 
   @override
   State<QuotaAlertTab> createState() => _QuotaAlertTabState();
 }
 
 class _QuotaAlertTabState extends State<QuotaAlertTab> {
-  bool _dailyLimitActive = true;
-  double _dailyLimitMB = 1024.0;
-  bool _quota80Active = true;
-  bool _quota95Active = true;
-  bool _hourlyLimitActive = true;
-  bool _switchNetworkActive = false;
+  bool _testAlertTriggered = false;
 
   void _showSetDailyLimitDialog() {
-    final controller = TextEditingController(text: _dailyLimitMB.toInt().toString());
+    final controller = TextEditingController(text: widget.dailyLimitMB.toInt().toString());
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: const Color(0xFF111827),
-        title: const Text('Setting Batas Harian (MB)', style: TextStyle(color: Colors.white, fontSize: 16)),
+        title: const Text('Setting Batas Harian (MB)', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
         content: TextField(
           controller: controller,
           keyboardType: TextInputType.number,
@@ -1346,13 +1729,11 @@ class _QuotaAlertTabState extends State<QuotaAlertTab> {
           ),
           ElevatedButton(
             onPressed: () {
-              final val = double.tryParse(controller.text) ?? _dailyLimitMB;
-              setState(() => _dailyLimitMB = val);
-              const MethodChannel('com.devcurl.netpulse/live_activity')
-                  .invokeMethod('setDailyLimit', {'limitMB': val});
+              final val = double.tryParse(controller.text) ?? widget.dailyLimitMB;
+              widget.onDailyLimitChanged(val);
               Navigator.pop(ctx);
               ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('Batas harian diubah ke: ${val.toInt()} MB (${(val / 1024).toStringAsFixed(2)} GB) & disinkronkan ke Widget!')),
+                SnackBar(content: Text('✓ Batas harian diubah ke: ${val.toInt()} MB (${(val / 1024).toStringAsFixed(2)} GB)')),
               );
             },
             style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF06B6D4)),
@@ -1363,10 +1744,108 @@ class _QuotaAlertTabState extends State<QuotaAlertTab> {
     );
   }
 
+  void _showSetHourlyLimitDialog() {
+    final controller = TextEditingController(text: widget.hourlyLimitMB.toInt().toString());
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF111827),
+        title: const Text('Setting Batas 1 Jam (MB)', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+        content: TextField(
+          controller: controller,
+          keyboardType: TextInputType.number,
+          style: const TextStyle(color: Colors.white),
+          decoration: const InputDecoration(
+            hintText: 'Contoh: 500',
+            suffixText: 'MB',
+            suffixStyle: TextStyle(color: Color(0xFF06B6D4)),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Batal', style: TextStyle(color: Colors.grey)),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              final val = double.tryParse(controller.text) ?? widget.hourlyLimitMB;
+              widget.onHourlyLimitChanged(val);
+              Navigator.pop(ctx);
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('✓ Batas 1 jam diubah ke: ${val.toInt()} MB')),
+              );
+            },
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF06B6D4)),
+            child: const Text('Simpan', style: TextStyle(color: Color(0xFF090D16), fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showSetMonthlyQuotaDialog() {
+    final controller = TextEditingController(text: widget.quotaLimitGB.toInt().toString());
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF111827),
+        title: const Text('Setting Batas Kuota Bulanan', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+        content: TextField(
+          controller: controller,
+          keyboardType: TextInputType.number,
+          style: const TextStyle(color: Colors.white),
+          decoration: const InputDecoration(
+            hintText: 'Contoh: 150',
+            suffixText: 'GB',
+            suffixStyle: TextStyle(color: Color(0xFF06B6D4)),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Batal', style: TextStyle(color: Colors.grey)),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              final val = double.tryParse(controller.text) ?? widget.quotaLimitGB;
+              widget.onQuotaLimitChanged(val);
+              Navigator.pop(ctx);
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('✓ Batas kuota bulanan diubah ke: ${val.toInt()} GB')),
+              );
+            },
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF06B6D4)),
+            child: const Text('Simpan', style: TextStyle(color: Color(0xFF090D16), fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _triggerTestAlert() {
+    HapticFeedback.heavyImpact();
+    setState(() => _testAlertTriggered = true);
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        backgroundColor: Color(0xFFEF4444),
+        content: Text('🚨 SIMULASI ALARM: Batas kuota harian terlewati! Notifikasi sentry aktif.', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
+      ),
+    );
+    Future.delayed(const Duration(seconds: 6), () {
+      if (mounted) setState(() => _testAlertTriggered = false);
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
-    final percent = (widget.currentUsageGB / widget.quotaLimitGB).clamp(0.0, 1.0);
+    final quotaSafe = widget.quotaLimitGB > 0 ? widget.quotaLimitGB : 1.0;
+    final percent = (widget.currentUsageGB / quotaSafe).clamp(0.0, 1.0);
     final remainingGB = (widget.quotaLimitGB - widget.currentUsageGB).clamp(0.0, widget.quotaLimitGB);
+
+    final isDailyExceeded = widget.dailyLimitActive && (widget.dailyUsageMB >= widget.dailyLimitMB);
+    final isHourlyExceeded = widget.hourlyLimitActive && (widget.hourlyUsageMB >= widget.hourlyLimitMB);
+    final isQuota80Exceeded = widget.quota80Active && (percent >= 0.8);
+    final hasActiveWarning = isDailyExceeded || isHourlyExceeded || isQuota80Exceeded || _testAlertTriggered;
 
     return SingleChildScrollView(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
@@ -1383,7 +1862,53 @@ class _QuotaAlertTabState extends State<QuotaAlertTab> {
             style: TextStyle(fontSize: 12, color: Color(0xFF94A3B8)),
           ),
 
-          const SizedBox(height: 24),
+          const SizedBox(height: 16),
+
+          // Active Warning Banner (When limits exceeded or tested)
+          if (hasActiveWarning) ...[
+            Container(
+              width: double.infinity,
+              margin: const EdgeInsets.only(bottom: 16),
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: const Color(0xFFEF4444).withOpacity(0.15),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: const Color(0xFFEF4444).withOpacity(0.6)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.warning_amber_rounded, color: Color(0xFFEF4444), size: 28),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          _testAlertTriggered
+                              ? '🚨 SIMULASI ALARM NETPULSE AKTIF'
+                              : isDailyExceeded
+                                  ? '🚨 BATAS HARIAN TERLEWATI!'
+                                  : isHourlyExceeded
+                                      ? '⚠️ LONJAKAN 1 JAM TERDETEKSI!'
+                                      : '⚠️ PERINGATAN KUOTA 80%+',
+                          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFFEF4444)),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          isDailyExceeded
+                              ? 'Pemakaian hari ini (${widget.dailyUsageMB.toStringAsFixed(1)} MB) melebihi batas (${widget.dailyLimitMB.toInt()} MB).'
+                              : isHourlyExceeded
+                                  ? 'Trafik 1 jam (${widget.hourlyUsageMB.toStringAsFixed(1)} MB) melebihi batas (${widget.hourlyLimitMB.toInt()} MB).'
+                                  : 'Sisa kuota bulanan tersisa ${remainingGB.toStringAsFixed(1)} GB.',
+                          style: const TextStyle(fontSize: 11, color: Color(0xFFFCA5A5)),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
 
           // Quota Progress Card
           Container(
@@ -1399,8 +1924,24 @@ class _QuotaAlertTabState extends State<QuotaAlertTab> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    const Text('Batas Kuota Bulanan', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.white)),
-                    Text('${(percent * 100).toStringAsFixed(1)}%', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFF06B6D4))),
+                    Row(
+                      children: [
+                        const Text('Batas Kuota Bulanan', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.white)),
+                        const SizedBox(width: 8),
+                        GestureDetector(
+                          onTap: _showSetMonthlyQuotaDialog,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF06B6D4).withOpacity(0.2),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: const Text('Edit GB', style: TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Color(0xFF06B6D4))),
+                          ),
+                        ),
+                      ],
+                    ),
+                    Text('${(percent * 100).toStringAsFixed(1)}%', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: percent >= 0.8 ? const Color(0xFFEF4444) : const Color(0xFF06B6D4))),
                   ],
                 ),
                 const SizedBox(height: 14),
@@ -1410,15 +1951,15 @@ class _QuotaAlertTabState extends State<QuotaAlertTab> {
                     value: percent,
                     minHeight: 12,
                     backgroundColor: Colors.white.withOpacity(0.08),
-                    valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFF06B6D4)),
+                    valueColor: AlwaysStoppedAnimation<Color>(percent >= 0.8 ? const Color(0xFFEF4444) : const Color(0xFF06B6D4)),
                   ),
                 ),
                 const SizedBox(height: 16),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text('Terpakai: ${widget.currentUsageGB.toStringAsFixed(1)} GB', style: const TextStyle(fontSize: 12, color: Color(0xFF94A3B8))),
-                    Text('Sisa: ${remainingGB.toStringAsFixed(1)} GB', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF10B981))),
+                    Text('Terpakai: ${widget.currentUsageGB.toStringAsFixed(2)} GB', style: const TextStyle(fontSize: 12, color: Color(0xFF94A3B8))),
+                    Text('Sisa: ${remainingGB.toStringAsFixed(2)} GB / ${widget.quotaLimitGB.toInt()} GB', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF10B981))),
                   ],
                 ),
               ],
@@ -1430,14 +1971,14 @@ class _QuotaAlertTabState extends State<QuotaAlertTab> {
           const Text('Aturan Notifikasi & Batas Harian', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
           const SizedBox(height: 12),
 
-          // Interactive Batas Pemakaian Harian (Bisa di-ON-kan & di-Setting MB-nya)
+          // Interactive Batas Pemakaian Harian
           Container(
             margin: const EdgeInsets.only(bottom: 10),
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
               color: const Color(0xFF111827),
               borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: _dailyLimitActive ? const Color(0xFF06B6D4).withOpacity(0.4) : Colors.white.withOpacity(0.06)),
+              border: Border.all(color: widget.dailyLimitActive ? const Color(0xFF06B6D4).withOpacity(0.4) : Colors.white.withOpacity(0.06)),
             ),
             child: Column(
               children: [
@@ -1455,41 +1996,39 @@ class _QuotaAlertTabState extends State<QuotaAlertTab> {
                               Container(
                                 padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                                 decoration: BoxDecoration(
-                                  color: _dailyLimitActive ? const Color(0xFF10B981).withOpacity(0.2) : Colors.white10,
+                                  color: widget.dailyLimitActive ? const Color(0xFF10B981).withOpacity(0.2) : Colors.white10,
                                   borderRadius: BorderRadius.circular(6),
                                 ),
                                 child: Text(
-                                  _dailyLimitActive ? 'AKTIF' : 'OFF',
+                                  widget.dailyLimitActive ? 'AKTIF' : 'OFF',
                                   style: TextStyle(
                                     fontSize: 9,
                                     fontWeight: FontWeight.bold,
-                                    color: _dailyLimitActive ? const Color(0xFF10B981) : Colors.grey,
+                                    color: widget.dailyLimitActive ? const Color(0xFF10B981) : Colors.grey,
                                   ),
                                 ),
                               ),
                             ],
                           ),
                           const SizedBox(height: 2),
-                          const Text('Kirim alarm jika pemakaian hari ini melebihi batas', style: TextStyle(fontSize: 10, color: Color(0xFF64748B))),
+                          Text('Penggunaan hari ini: ${widget.dailyUsageMB.toStringAsFixed(1)} MB', style: const TextStyle(fontSize: 10, color: Color(0xFF64748B))),
                         ],
                       ),
                     ),
                     Switch(
-                      value: _dailyLimitActive,
-                      onChanged: (val) {
-                        setState(() => _dailyLimitActive = val);
-                      },
+                      value: widget.dailyLimitActive,
+                      onChanged: widget.onDailyLimitToggled,
                       activeColor: const Color(0xFF06B6D4),
                     ),
                   ],
                 ),
-                if (_dailyLimitActive) ...[
+                if (widget.dailyLimitActive) ...[
                   const Divider(color: Colors.white10, height: 16),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       Text(
-                        'Setting Kuota: ${_dailyLimitMB.toInt()} MB (${(_dailyLimitMB / 1024).toStringAsFixed(2)} GB)',
+                        'Setting Kuota: ${widget.dailyLimitMB.toInt()} MB (${(widget.dailyLimitMB / 1024).toStringAsFixed(2)} GB)',
                         style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF06B6D4)),
                       ),
                       TextButton.icon(
@@ -1504,32 +2043,114 @@ class _QuotaAlertTabState extends State<QuotaAlertTab> {
             ),
           ),
 
-          _alertToggle(
-            'Batas Pemakaian Per 1 Jam (500 MB)',
-            'Peringatkan jika ada aplikasi download berlebih',
-            _hourlyLimitActive,
-            (val) => setState(() => _hourlyLimitActive = val),
+          // Interactive Batas Pemakaian Per 1 Jam
+          Container(
+            margin: const EdgeInsets.only(bottom: 10),
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: const Color(0xFF111827),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: widget.hourlyLimitActive ? const Color(0xFF06B6D4).withOpacity(0.4) : Colors.white.withOpacity(0.06)),
+            ),
+            child: Column(
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Text('Batas Pemakaian 1 Jam (${widget.hourlyLimitMB.toInt()} MB)', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.white)),
+                              const SizedBox(width: 8),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: widget.hourlyLimitActive ? const Color(0xFF10B981).withOpacity(0.2) : Colors.white10,
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: Text(
+                                  widget.hourlyLimitActive ? 'AKTIF' : 'OFF',
+                                  style: TextStyle(
+                                    fontSize: 9,
+                                    fontWeight: FontWeight.bold,
+                                    color: widget.hourlyLimitActive ? const Color(0xFF10B981) : Colors.grey,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 2),
+                          Text('Trafik 1 jam terakhir: ${widget.hourlyUsageMB.toStringAsFixed(1)} MB', style: const TextStyle(fontSize: 10, color: Color(0xFF64748B))),
+                        ],
+                      ),
+                    ),
+                    Switch(
+                      value: widget.hourlyLimitActive,
+                      onChanged: widget.onHourlyLimitToggled,
+                      activeColor: const Color(0xFF06B6D4),
+                    ),
+                  ],
+                ),
+                if (widget.hourlyLimitActive) ...[
+                  const Divider(color: Colors.white10, height: 16),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        'Peringatan lonjakan jika 1 jam > ${widget.hourlyLimitMB.toInt()} MB',
+                        style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF06B6D4)),
+                      ),
+                      TextButton.icon(
+                        onPressed: _showSetHourlyLimitDialog,
+                        icon: const Icon(Icons.edit, size: 12, color: Color(0xFF06B6D4)),
+                        label: const Text('Ubah MB', style: TextStyle(fontSize: 11, color: Color(0xFF06B6D4))),
+                      ),
+                    ],
+                  ),
+                ],
+              ],
+            ),
           ),
 
           _alertToggle(
             'Peringatan Kuota 80%',
             'Kirim notifikasi push saat kuota mencapai 80%',
-            _quota80Active,
-            (val) => setState(() => _quota80Active = val),
+            widget.quota80Active,
+            widget.onQuota80Toggled,
           ),
 
           _alertToggle(
             'Peringatan Kuota 95%',
             'Kirim alarm keras saat kuota tersisa 5%',
-            _quota95Active,
-            (val) => setState(() => _quota95Active = val),
+            widget.quota95Active,
+            widget.onQuota95Toggled,
           ),
 
           _alertToggle(
-            'Notifikasi Putus Koneksi',
-            'Bunyikan getar jika Wi-Fi beralih ke Seluler',
-            _switchNetworkActive,
-            (val) => setState(() => _switchNetworkActive = val),
+            'Notifikasi Putus / Pindah Koneksi',
+            'Getar & tampilkan snackbar jika Wi-Fi beralih ke Seluler',
+            widget.switchNetworkActive,
+            widget.onSwitchNetworkToggled,
+          ),
+
+          const SizedBox(height: 12),
+
+          // Simulation Button
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: _triggerTestAlert,
+              icon: const Icon(Icons.crisis_alert_rounded, size: 16, color: Color(0xFFEF4444)),
+              label: const Text('Uji Coba Alarm & Simulasi Notifikasi Sentry', style: TextStyle(color: Color(0xFFEF4444), fontSize: 12, fontWeight: FontWeight.bold)),
+              style: OutlinedButton.styleFrom(
+                side: const BorderSide(color: Color(0xFFEF4444)),
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              ),
+            ),
           ),
         ],
       ),
@@ -1576,15 +2197,151 @@ class SettingsTab extends StatelessWidget {
   final bool isDark;
   final VoidCallback onToggleTheme;
   final String networkType;
+  final String ispName;
+  final String speedUnit;
+  final double monthlyQuotaGB;
+  final int resetDay;
   final ValueChanged<String> onNetworkChanged;
+  final ValueChanged<String> onSelectSpeedUnit;
+  final ValueChanged<double> onMonthlyQuotaChanged;
+  final ValueChanged<int> onResetDayChanged;
+  final VoidCallback onExportLog;
 
   const SettingsTab({
     super.key,
     required this.isDark,
     required this.onToggleTheme,
     required this.networkType,
+    required this.ispName,
+    required this.speedUnit,
+    required this.monthlyQuotaGB,
+    required this.resetDay,
     required this.onNetworkChanged,
+    required this.onSelectSpeedUnit,
+    required this.onMonthlyQuotaChanged,
+    required this.onResetDayChanged,
+    required this.onExportLog,
   });
+
+  void _showSpeedUnitSelector(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF111827),
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      builder: (ctx) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('Pilih Satuan Kecepatan', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white)),
+                const SizedBox(height: 14),
+                for (final u in ['Auto', 'Mbps', 'MB/s', 'KB/s'])
+                  ListTile(
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                    tileColor: speedUnit == u ? const Color(0xFF06B6D4).withOpacity(0.12) : null,
+                    title: Text(u, style: TextStyle(color: speedUnit == u ? const Color(0xFF06B6D4) : Colors.white, fontWeight: FontWeight.bold)),
+                    trailing: speedUnit == u ? const Icon(Icons.check_rounded, color: Color(0xFF06B6D4)) : null,
+                    onTap: () {
+                      onSelectSpeedUnit(u);
+                      Navigator.pop(ctx);
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('✓ Satuan kecepatan diubah ke: $u')),
+                      );
+                    },
+                  ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  void _showResetDayDialog(BuildContext context) {
+    int selected = resetDay;
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF111827),
+        title: const Text('Pilih Tanggal Reset Siklus Kuota', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+        content: StatefulBuilder(
+          builder: (context, setLocalState) {
+            return DropdownButton<int>(
+              value: selected,
+              dropdownColor: const Color(0xFF1E293B),
+              style: const TextStyle(color: Colors.white, fontSize: 16),
+              isExpanded: true,
+              items: List.generate(31, (i) => i + 1).map((day) {
+                return DropdownMenuItem(value: day, child: Text('Tanggal $day tiap bulan'));
+              }).toList(),
+              onChanged: (val) {
+                if (val != null) setLocalState(() => selected = val);
+              },
+            );
+          },
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Batal', style: TextStyle(color: Colors.grey)),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              onResetDayChanged(selected);
+              Navigator.pop(ctx);
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('✓ Siklus kuota akan direset setiap tanggal $selected')),
+              );
+            },
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF06B6D4)),
+            child: const Text('Simpan', style: TextStyle(color: Color(0xFF090D16), fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showMonthlyQuotaDialog(BuildContext context) {
+    final controller = TextEditingController(text: monthlyQuotaGB.toInt().toString());
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF111827),
+        title: const Text('Setting Kuota Bulanan (GB)', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+        content: TextField(
+          controller: controller,
+          keyboardType: TextInputType.number,
+          style: const TextStyle(color: Colors.white),
+          decoration: const InputDecoration(
+            hintText: 'Contoh: 150',
+            suffixText: 'GB',
+            suffixStyle: TextStyle(color: Color(0xFF06B6D4)),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Batal', style: TextStyle(color: Colors.grey)),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              final val = double.tryParse(controller.text) ?? monthlyQuotaGB;
+              onMonthlyQuotaChanged(val);
+              Navigator.pop(ctx);
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('✓ Batas kuota bulanan diubah ke: ${val.toInt()} GB')),
+              );
+            },
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF06B6D4)),
+            child: const Text('Simpan', style: TextStyle(color: Color(0xFF090D16), fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1612,32 +2369,69 @@ class SettingsTab extends StatelessWidget {
             trailing: Switch(value: isDark, onChanged: (_) => onToggleTheme(), activeColor: const Color(0xFF06B6D4)),
           ),
 
-          _settingsTile(
-            icon: Icons.scale_rounded,
-            title: 'Satuan Kecepatan',
-            desc: 'Mbps (Megabit per detik) & MB/s',
-            trailing: const Text('Mbps', style: TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF06B6D4))),
+          GestureDetector(
+            onTap: () => _showSpeedUnitSelector(context),
+            child: _settingsTile(
+              icon: Icons.scale_rounded,
+              title: 'Satuan Kecepatan',
+              desc: 'Pilihan format: Auto, Mbps, MB/s, KB/s',
+              trailing: Row(
+                children: [
+                  Text(speedUnit, style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF06B6D4))),
+                  const SizedBox(width: 4),
+                  const Icon(Icons.chevron_right_rounded, color: Color(0xFF64748B), size: 18),
+                ],
+              ),
+            ),
           ),
 
           _settingsTile(
             icon: Icons.router_rounded,
             title: 'Nama ISP Provider',
-            desc: 'Penyedia layanan internet aktif saat ini',
-            trailing: Text(networkType.contains('Wi-Fi') ? 'Biznet Fiber' : 'Telkomsel 5G', style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF06B6D4))),
+            desc: '$networkType • Terdeteksi otomatis dari antarmuka fisik',
+            trailing: Text(ispName, style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF06B6D4))),
           ),
 
-          _settingsTile(
-            icon: Icons.calendar_month_rounded,
-            title: 'Tanggal Reset Kuota',
-            desc: 'Reset counter setiap tanggal 1 tiap bulan',
-            trailing: const Text('Tgl 1', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
+          GestureDetector(
+            onTap: () => _showMonthlyQuotaDialog(context),
+            child: _settingsTile(
+              icon: Icons.pie_chart_outline_rounded,
+              title: 'Batas Kuota Bulanan',
+              desc: 'Batas paket data internet Anda',
+              trailing: Row(
+                children: [
+                  Text('${monthlyQuotaGB.toInt()} GB', style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF06B6D4))),
+                  const SizedBox(width: 4),
+                  const Icon(Icons.chevron_right_rounded, color: Color(0xFF64748B), size: 18),
+                ],
+              ),
+            ),
           ),
 
-          _settingsTile(
-            icon: Icons.file_download_outlined,
-            title: 'Export Data Log',
-            desc: 'Simpan riwayat pemakaian per 1 jam ke CSV/JSON',
-            trailing: const Icon(Icons.chevron_right_rounded, color: Color(0xFF64748B)),
+          GestureDetector(
+            onTap: () => _showResetDayDialog(context),
+            child: _settingsTile(
+              icon: Icons.calendar_month_rounded,
+              title: 'Tanggal Reset Kuota',
+              desc: 'Reset counter otomatis tiap tanggal $resetDay',
+              trailing: Row(
+                children: [
+                  Text('Tgl $resetDay', style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
+                  const SizedBox(width: 4),
+                  const Icon(Icons.chevron_right_rounded, color: Color(0xFF64748B), size: 18),
+                ],
+              ),
+            ),
+          ),
+
+          GestureDetector(
+            onTap: onExportLog,
+            child: _settingsTile(
+              icon: Icons.file_download_outlined,
+              title: 'Export Data Log (CSV)',
+              desc: 'Simpan dan salin riwayat pemakaian per jam ke CSV',
+              trailing: const Icon(Icons.chevron_right_rounded, color: Color(0xFF64748B)),
+            ),
           ),
 
           const SizedBox(height: 20),
@@ -1651,12 +2445,12 @@ class SettingsTab extends StatelessWidget {
               borderRadius: BorderRadius.circular(16),
               border: Border.all(color: Colors.white.withOpacity(0.08)),
             ),
-            child: Column(
+            child: const Column(
               crossAxisAlignment: CrossAxisAlignment.start,
-              children: const [
+              children: [
                 Text('NetPulse Pro for iOS & Android', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.white)),
                 SizedBox(height: 4),
-                Text('Version 1.0.0 (Build 1) • Mode 4 Zero-Local Cloud Build', style: TextStyle(fontSize: 10, color: Color(0xFF64748B))),
+                Text('Version 2.0.21 (Build 21) • Hardware Monitor & WidgetKit Engine', style: TextStyle(fontSize: 10, color: Color(0xFF64748B))),
                 SizedBox(height: 4),
                 Text('GitHub Actions Engine: macOS Runner (iOS .ipa) & Ubuntu Runner (Android .apk)', style: TextStyle(fontSize: 10, color: Color(0xFF06B6D4))),
               ],

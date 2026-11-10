@@ -157,6 +157,9 @@ class NetworkSpeedMonitor {
     private let todayBytesKey = "NetPulse_TodayBytes"
     private let lastDateKey = "NetPulse_LastDate"
     private let hourlyBucketsKey = "NetPulse_HourlyBuckets"
+    private let monthBytesKey = "NetPulse_MonthBytes"
+    private let lastMonthKey = "NetPulse_LastMonth"
+    private let dailyHistoryKey = "NetPulse_DailyHistory"
 
     init() {
         startPathMonitor()
@@ -191,11 +194,48 @@ class NetworkSpeedMonitor {
 
     private func resetDailyCounterIfNeeded() {
         let defaults = UserDefaults.standard
-        let todayStr = String(ISO8601DateFormatter().string(from: Date()).prefix(10))
+        let now = Date()
+        let todayStr = String(ISO8601DateFormatter().string(from: now).prefix(10))
         let lastDateStr = defaults.string(forKey: lastDateKey) ?? ""
         if lastDateStr != todayStr {
+            if !lastDateStr.isEmpty {
+                let prevBytes = defaults.object(forKey: todayBytesKey) as? UInt64 ?? 0
+                var history = defaults.dictionary(forKey: dailyHistoryKey) as? [String: Double] ?? [:]
+                history[lastDateStr] = Double(prevBytes) / (1024.0 * 1024.0 * 1024.0)
+                // Keep max 30 days
+                if history.count > 30 {
+                    let sortedKeys = history.keys.sorted()
+                    for k in sortedKeys.prefix(history.count - 30) {
+                        history.removeValue(forKey: k)
+                    }
+                }
+                defaults.set(history, forKey: dailyHistoryKey)
+            }
             defaults.set(todayStr, forKey: lastDateKey)
             defaults.set(UInt64(0), forKey: todayBytesKey)
+        }
+
+        // Monthly reset check based on resetDay
+        let resetDay = defaults.integer(forKey: "np_reset_day")
+        let targetResetDay = resetDay > 0 ? resetDay : 1
+        let cal = Calendar.current
+        let comp = cal.dateComponents([.year, .month, .day], from: now)
+        let currentCycle: String
+        if let d = comp.day, let y = comp.year, let m = comp.month {
+            if d >= targetResetDay {
+                currentCycle = String(format: "%04d-%02d", y, m)
+            } else {
+                let prevMonth = cal.date(byAdding: .month, value: -1, to: now) ?? now
+                let pmComp = cal.dateComponents([.year, .month], from: prevMonth)
+                currentCycle = String(format: "%04d-%02d", pmComp.year ?? y, pmComp.month ?? m)
+            }
+        } else {
+            currentCycle = String(todayStr.prefix(7))
+        }
+        let lastMonthStr = defaults.string(forKey: lastMonthKey) ?? ""
+        if lastMonthStr != currentCycle {
+            defaults.set(currentCycle, forKey: lastMonthKey)
+            defaults.set(UInt64(0), forKey: monthBytesKey)
         }
     }
 
@@ -300,17 +340,24 @@ class NetworkSpeedMonitor {
         defaults.set(totalToday, forKey: todayBytesKey)
         let todayGB = Double(totalToday) / (1024.0 * 1024.0 * 1024.0)
 
+        var totalMonth = defaults.object(forKey: monthBytesKey) as? UInt64 ?? 0
+        totalMonth += addedBytes
+        defaults.set(totalMonth, forKey: monthBytesKey)
+
         let nowTs = now.timeIntervalSince1970
         var buckets = (defaults.array(forKey: hourlyBucketsKey) as? [[String: Double]]) ?? []
         buckets = buckets.filter { entry in
             guard let t = entry["t"] else { return false }
-            return (nowTs - t) <= 3600.0 && (nowTs - t) >= 0.0
+            return (nowTs - t) <= 86400.0 && (nowTs - t) >= 0.0
         }
         if addedBytes > 0 {
             buckets.append(["t": nowTs, "b": Double(addedBytes)])
         }
         defaults.set(buckets, forKey: hourlyBucketsKey)
-        let hourBytes = buckets.reduce(0.0) { $0 + ($1["b"] ?? 0.0) }
+        let hourBytes = buckets.filter { entry in
+            guard let t = entry["t"] else { return false }
+            return (nowTs - t) <= 3600.0
+        }.reduce(0.0) { $0 + ($1["b"] ?? 0.0) }
         let lastHourMB = hourBytes / (1024.0 * 1024.0)
 
         if arc4random_uniform(4) == 0 {
@@ -318,6 +365,88 @@ class NetworkSpeedMonitor {
         }
 
         return (downMbps, upMbps, todayGB, lastHourMB, currentNetwork, currentPingMs)
+    }
+
+    func getAnalyticsPayload() -> [String: Any] {
+        resetDailyCounterIfNeeded()
+        let defaults = UserDefaults.standard
+        let now = Date()
+        let nowTs = now.timeIntervalSince1970
+        let cal = Calendar.current
+
+        let buckets = (defaults.array(forKey: hourlyBucketsKey) as? [[String: Double]]) ?? []
+        var hourly24: [Double] = []
+        var hourlyLabels: [String] = []
+        let dfHour = DateFormatter()
+        dfHour.dateFormat = "HH:00"
+
+        for hoursAgo in stride(from: 23, through: 0, by: -1) {
+            let slotEnd = nowTs - Double(hoursAgo) * 3600.0
+            let slotStart = slotEnd - 3600.0
+            let sumBytes = buckets.filter { entry in
+                guard let t = entry["t"] else { return false }
+                return t > slotStart && t <= slotEnd
+            }.reduce(0.0) { $0 + ($1["b"] ?? 0.0) }
+            hourly24.append(sumBytes / (1024.0 * 1024.0))
+            let slotDate = Date(timeIntervalSince1970: slotEnd)
+            hourlyLabels.append(dfHour.string(from: slotDate))
+        }
+
+        let history = defaults.dictionary(forKey: dailyHistoryKey) as? [String: Double] ?? [:]
+        let totalTodayBytes = defaults.object(forKey: todayBytesKey) as? UInt64 ?? 0
+        let todayGB = Double(totalTodayBytes) / (1024.0 * 1024.0 * 1024.0)
+
+        var weekly7: [Double] = []
+        var weeklyLabels: [String] = []
+        let dfDay = DateFormatter()
+        dfDay.locale = Locale(identifier: "id_ID")
+        dfDay.dateFormat = "EEE"
+        let dfIso = DateFormatter()
+        dfIso.dateFormat = "yyyy-MM-dd"
+
+        for daysAgo in stride(from: 6, through: 0, by: -1) {
+            let targetDate = cal.date(byAdding: .day, value: -daysAgo, to: now) ?? now
+            let dateKey = dfIso.string(from: targetDate)
+            let val = (daysAgo == 0) ? todayGB : (history[dateKey] ?? 0.0)
+            weekly7.append(val)
+            weeklyLabels.append(dfDay.string(from: targetDate))
+        }
+
+        let totalMonthBytes = defaults.object(forKey: monthBytesKey) as? UInt64 ?? totalTodayBytes
+        let monthGB = Double(totalMonthBytes) / (1024.0 * 1024.0 * 1024.0)
+
+        var monthly6: [Double] = [0, 0, 0, 0, 0, monthGB]
+        var monthlyLabels: [String] = []
+        let dfMonth = DateFormatter()
+        dfMonth.locale = Locale(identifier: "id_ID")
+        dfMonth.dateFormat = "MMM"
+        for mAgo in stride(from: 5, through: 0, by: -1) {
+            let mDate = cal.date(byAdding: .month, value: -mAgo, to: now) ?? now
+            monthlyLabels.append(dfMonth.string(from: mDate))
+        }
+
+        let currentYear = cal.component(.year, from: now)
+        let yearlyLabels = [
+            String(currentYear - 3),
+            String(currentYear - 2),
+            String(currentYear - 1),
+            String(currentYear)
+        ]
+        let yearly4: [Double] = [0, 0, 0, monthGB]
+
+        return [
+            "hourly": hourly24,
+            "hourlyLabels": hourlyLabels,
+            "weekly": weekly7,
+            "weeklyLabels": weeklyLabels,
+            "monthly": monthly6,
+            "monthlyLabels": monthlyLabels,
+            "yearly": yearly4,
+            "yearlyLabels": yearlyLabels,
+            "todayGB": todayGB,
+            "monthGB": monthGB,
+            "isp": currentNetwork
+        ]
     }
 }
 
@@ -370,6 +499,7 @@ class NetworkSpeedMonitor {
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
     ) -> Bool {
         let controller = window?.rootViewController as! FlutterViewController
+        self.selectedUnit = UserDefaults.standard.string(forKey: "np_unit") ?? "Auto"
         liveChannel = FlutterMethodChannel(
             name: "com.devcurl.netpulse/live_activity",
             binaryMessenger: controller.binaryMessenger
@@ -396,8 +526,67 @@ class NetworkSpeedMonitor {
                 case "setSpeedUnit":
                     let args = call.arguments as? [String: Any] ?? [:]
                     self.selectedUnit = args["unit"] as? String ?? "Auto"
+                    UserDefaults.standard.set(self.selectedUnit, forKey: "np_unit")
+                    if let group = UserDefaults(suiteName: "group.com.devcurl.netpulse") {
+                        group.set(self.selectedUnit, forKey: "np_unit")
+                    }
                     self.syncMetricsToWidget(force: true)
                     result(true)
+
+                case "getAnalyticsData":
+                    result(NetworkSpeedMonitor.shared.getAnalyticsPayload())
+
+                case "getAlertSettings":
+                    let d = UserDefaults.standard
+                    let dailyLim = d.double(forKey: "np_daily_limit_mb")
+                    let hourlyLim = d.double(forKey: "np_hourly_limit_mb")
+                    let monthQuota = d.double(forKey: "np_monthly_quota_gb")
+                    let resetDay = d.integer(forKey: "np_reset_day")
+                    result([
+                        "dailyLimitActive": d.object(forKey: "np_daily_limit_active") as? Bool ?? true,
+                        "dailyLimitMB": dailyLim > 0 ? dailyLim : 1024.0,
+                        "hourlyLimitActive": d.object(forKey: "np_hourly_limit_active") as? Bool ?? true,
+                        "hourlyLimitMB": hourlyLim > 0 ? hourlyLim : 500.0,
+                        "quota80Active": d.object(forKey: "np_quota_80_active") as? Bool ?? true,
+                        "quota95Active": d.object(forKey: "np_quota_95_active") as? Bool ?? true,
+                        "switchNetworkActive": d.object(forKey: "np_switch_network_active") as? Bool ?? false,
+                        "monthlyQuotaGB": monthQuota > 0 ? monthQuota : 150.0,
+                        "resetDay": resetDay > 0 ? resetDay : 1,
+                        "speedUnit": d.string(forKey: "np_unit") ?? "Auto"
+                    ])
+
+                case "saveAlertSettings":
+                    let args = call.arguments as? [String: Any] ?? [:]
+                    var targets: [UserDefaults] = [UserDefaults.standard]
+                    if let group = UserDefaults(suiteName: "group.com.devcurl.netpulse") {
+                        targets.append(group)
+                    }
+                    for d in targets {
+                        if let v = args["dailyLimitActive"] as? Bool { d.set(v, forKey: "np_daily_limit_active") }
+                        if let v = args["dailyLimitMB"] as? Double { d.set(v, forKey: "np_daily_limit_mb") }
+                        if let v = args["hourlyLimitActive"] as? Bool { d.set(v, forKey: "np_hourly_limit_active") }
+                        if let v = args["hourlyLimitMB"] as? Double { d.set(v, forKey: "np_hourly_limit_mb") }
+                        if let v = args["quota80Active"] as? Bool { d.set(v, forKey: "np_quota_80_active") }
+                        if let v = args["quota95Active"] as? Bool { d.set(v, forKey: "np_quota_95_active") }
+                        if let v = args["switchNetworkActive"] as? Bool { d.set(v, forKey: "np_switch_network_active") }
+                        if let v = args["monthlyQuotaGB"] as? Double { d.set(v, forKey: "np_monthly_quota_gb") }
+                        if let v = args["resetDay"] as? Int { d.set(v, forKey: "np_reset_day") }
+                    }
+                    self.syncMetricsToWidget(force: true)
+                    result(true)
+
+                case "exportDataLog":
+                    let payload = NetworkSpeedMonitor.shared.getAnalyticsPayload()
+                    let hourly = payload["hourly"] as? [Double] ?? []
+                    let labels = payload["hourlyLabels"] as? [String] ?? []
+                    let isp = payload["isp"] as? String ?? "Wi-Fi"
+                    let todayGB = payload["todayGB"] as? Double ?? 0.0
+                    let monthGB = payload["monthGB"] as? Double ?? 0.0
+                    var csv = "Slot_Waktu,Data_MB,Jaringan,Total_Hari_GB,Total_Bulan_GB\n"
+                    for i in 0..<min(hourly.count, labels.count) {
+                        csv += String(format: "%@,%.2f,%@,%.3f,%.3f\n", labels[i], hourly[i], isp, todayGB, monthGB)
+                    }
+                    result(csv)
 
                 case "setDailyLimit":
                     let args = call.arguments as? [String: Any] ?? [:]
